@@ -1,0 +1,24 @@
+{
+  "categories": {
+    "document": {
+      "queue": "doc",
+      "input": ["doc","docx","xls","xlsx","ppt","pptx","odt","ods","odp","rtf","txt","html","htm","md"],
+      "output": ["pdf"]
+    },
+    "image": {
+      "queue": "image",
+      "input": ["jpg","jpeg","png","webp","avif","gif","tif","tiff"],
+      "output": ["jpg","png","webp","avif","tiff","gif"]
+    },
+    "audio": {
+      "queue": "media",
+      "input": ["mp3","wav","flac","m4a","ogg","aac","opus","wma"],
+      "output": ["mp3","wav","ogg","flac","m4a"]
+    },
+    "video": {
+      "queue": "media",
+      "input": ["mp4","mkv","avi","mov","webm","flv","wmv","m4v"],
+      "output": ["mp4","webm","mkv","mp3","wav","ogg","flac","m4a"]
+    }
+  }
+}

@@ -1,0 +1,106 @@
+name: cloudconvert-x
+
+x-common-env: &common-env
+  REDIS_ADDR: redis:6379
+  S3_ENDPOINT: http://minio:9000
+  S3_ACCESS_KEY: ${MINIO_ROOT_USER:-ccxadmin}
+  S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-ccxsecret123}
+  S3_BUCKET: ${S3_BUCKET:-ccx}
+
+services:
+  # ---------- Infrastruktur (bahasa: C / Go) ----------
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes: [redis_data:/data]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  minio:
+    # Ditandai versi tetap. Jika gagal di-pull, ganti ke minio/minio:latest
+    image: cgr.dev/chainguard/minio:latest
+    user: "0"
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-ccxadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-ccxsecret123}
+    ports: ["9001:9001"]          # Console web MinIO
+    volumes: [minio_data:/data]
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  gotenberg:                       # Go + Chromium + LibreOffice
+    image: gotenberg/gotenberg:8
+    command:
+      - gotenberg
+      - --api-timeout=120s
+      - --chromium-restart-after=100
+      - --libreoffice-restart-after=50
+
+  # ---------- Layanan aplikasi ----------
+  api:                             # Python (FastAPI)
+    build: ./services/api
+    environment:
+      <<: *common-env
+      GOTENBERG_URL: http://gotenberg:3000
+      MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-200}
+    ports: ["8000:8000"]           # Swagger UI: http://localhost:8000/docs
+    depends_on:
+      redis: { condition: service_healthy }
+      minio: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://localhost:8000/api/ping')"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  worker-doc:                      # Python -> memanggil Gotenberg (Go) lewat HTTP
+    build: ./services/worker-doc
+    environment:
+      <<: *common-env
+      GOTENBERG_URL: http://gotenberg:3000
+    depends_on:
+      redis: { condition: service_healthy }
+      minio: { condition: service_healthy }
+      gotenberg: { condition: service_started }
+    restart: unless-stopped
+
+  worker-image:                    # Node.js + Sharp (libvips, C++)
+    build: ./services/worker-image
+    environment:
+      <<: *common-env
+      IMAGE_MAX_WIDTH: ${IMAGE_MAX_WIDTH:-2560}
+      IMAGE_QUALITY: ${IMAGE_QUALITY:-80}
+    depends_on:
+      redis: { condition: service_healthy }
+      minio: { condition: service_healthy }
+    restart: unless-stopped
+
+  worker-media:                    # Go -> menjalankan FFmpeg (C)
+    build: ./services/worker-media
+    environment:
+      <<: *common-env
+    depends_on:
+      redis: { condition: service_healthy }
+      minio: { condition: service_healthy }
+    deploy:
+      resources:
+        limits: { cpus: "2", memory: 2G }
+    restart: unless-stopped
+
+  frontend:                        # HTML/JS statis + Nginx (reverse proxy /api)
+    build: ./services/frontend
+    ports: ["8080:80"]
+    depends_on: [api]
+    restart: unless-stopped
+
+volumes:
+  redis_data: {}
+  minio_data: {}
