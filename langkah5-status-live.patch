@@ -1,0 +1,161 @@
+diff --git a/services/frontend/index.html b/services/frontend/index.html
+index ec2bb64..b762260 100644
+--- a/services/frontend/index.html
++++ b/services/frontend/index.html
+@@ -185,6 +185,9 @@ input[type="email"], input[type="password"], .select {
+ .job-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 10px; margin-top: 2px; font-size: 13px; color: var(--muted); }
+ .job .bar { margin-top: 8px; max-width: 360px; }
+ .job-err { margin-top: 4px; font-size: 13px; color: var(--err); overflow-wrap: anywhere; }
++.job-detail { margin-top: 4px; color: var(--muted); }
++.job-detail summary { cursor: pointer; font-size: 12px; }
++.job-detail code { display: block; margin-top: 4px; font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
+ .empty { display: grid; place-items: center; gap: 8px; padding: 36px 16px; color: var(--muted); text-align: center; }
+ .empty .ic { width: 32px; height: 32px; }
+ 
+@@ -198,8 +201,16 @@ input[type="email"], input[type="password"], .select {
+ .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--ok); flex: none; }
+ .dot.bad { background: var(--err); }
+ .dot.warn { background: var(--warn); }
++.dot.busy { background: var(--brand); color: var(--brand); animation: ping 1.4s ease-out infinite; }
++.tile-top { flex-wrap: wrap; }
++.tile-top .name { white-space: nowrap; }
+ .tile .tag { margin-left: auto; font-size: 12px; font-weight: 700; color: var(--brand); background: var(--brand-soft); padding: 1px 8px; border-radius: 999px; }
+-.tile small { color: var(--muted); }
++.tile small { color: var(--muted); display: block; }
++.tile small.strong { color: var(--text); font-weight: 600; }
++.sec-meta { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
++.live { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); }
++.pulse { width: 8px; height: 8px; border-radius: 50%; color: var(--ok); background: currentColor; animation: ping 1.8s ease-out infinite; }
++@keyframes ping { 0% { box-shadow: 0 0 0 0 currentColor; } 70% { box-shadow: 0 0 0 8px transparent; } 100% { box-shadow: 0 0 0 0 transparent; } }
+ 
+ /* Login */
+ .auth { max-width: 440px; padding: 8vh 20px 40px; }
+@@ -338,7 +349,7 @@ input[type="email"], input[type="password"], .select {
+     </section>
+ 
+     <section class="section wrap" id="layanan" aria-labelledby="layananTitle">
+-      <div class="sec-head"><h2 id="layananTitle">Status layanan</h2><span class="pill warn" id="overall">memuat…</span></div>
++      <div class="sec-head"><h2 id="layananTitle">Status layanan</h2><div class="sec-meta"><span class="live" id="live" hidden><i class="pulse" aria-hidden="true"></i><span id="updated"></span></span><span class="pill warn" id="overall">memuat…</span></div></div>
+       <div class="tiles" id="health"></div>
+     </section>
+ 
+@@ -423,7 +434,7 @@ function ago(ts) {
+   return rtf.format(Math.round(s / 86400), 'day');
+ }
+ 
+-const state = { formats: {}, staged: [], user: null, busy: false, ready: Promise.resolve(), anyActive: false };
++const state = { formats: {}, staged: [], user: null, busy: false, ready: Promise.resolve(), anyActive: false, busyNow: false, doneBy: {} };
+ let seq = 0;
+ 
+ /* ---------- 2. Tema ---------- */
+@@ -609,6 +620,19 @@ async function convertAll() {
+ /* ---------- 6. Riwayat ---------- */
+ const jobEls = new Map();
+ 
++// Pesan teknis ffmpeg/worker -> kalimat yang bisa dipahami. Teks aslinya tetap tersedia di "Detail teknis".
++const FRIENDLY_ERRORS = [
++  [/does not contain any stream/i, 'File sumber tidak punya jalur audio/video yang dibutuhkan format tujuan. Contoh: rekaman layar tanpa suara tidak bisa diubah ke MP3.'],
++  [/invalid data found when processing input/i, 'File rusak, atau isinya tidak sesuai dengan ekstensinya.'],
++  [/no such file|not found/i, 'File sumber tidak ditemukan di penyimpanan (mungkin sudah kedaluwarsa). Unggah ulang.'],
++];
++function errorNodes(raw) {
++  const hit = FRIENDLY_ERRORS.find(([re]) => re.test(raw));
++  if (!hit) return [raw];
++  return [el('div', { text: hit[1] }),
++    el('details', { class: 'job-detail' }, el('summary', { text: 'Detail teknis' }), el('code', { text: raw }))];
++}
++
+ function buildJob(j) {
+   const ic = el('span', { class: 'f-ic' });
+   const name = el('span');
+@@ -639,7 +663,9 @@ function updateJob(r, j) {
+   r.when.textContent = j.created_at ? ago(j.created_at) : '';
+   const active = j.status === 'queued' || j.status === 'processing';
+   r.bar.hidden = !active; r.fill.style.width = `${j.progress || 0}%`;
+-  r.err.hidden = j.status !== 'failed'; r.err.textContent = j.status === 'failed' ? (j.error || 'Konversi gagal') : '';
++  const raw = j.status === 'failed' ? (j.error || 'Konversi gagal') : '';
++  r.err.hidden = !raw;
++  if (r.errRaw !== raw) { r.errRaw = raw; r.err.replaceChildren(...(raw ? errorNodes(raw) : [])); }  // dibangun ulang hanya bila berubah (agar "Detail teknis" tidak menutup sendiri)
+   if (j.status === 'done' && !r.link) {
+     r.link = el('a', { class: 'btn btn-primary', href: `/api/jobs/${j.job_id}/download`, download: j.output_name || true, title: j.output_name || '' },
+       icon('download'), 'Unduh');
+@@ -660,10 +686,15 @@ function renderJobs(jobs) {
+   });
+   for (const [id, r] of jobEls) if (!seen.has(id)) { r.root.remove(); jobEls.delete(id); }
+   state.anyActive = jobs.some((j) => j.status === 'queued' || j.status === 'processing');
++  state.doneBy = {};
++  for (const j of jobs) {
++    const svc = j.status === 'done' && j.worker ? j.worker.split(' ')[0] : null;
++    if (svc) state.doneBy[svc] = (state.doneBy[svc] || 0) + 1;
++  }
+ }
+ 
+ function clearJobs() {
+-  jobEls.clear(); $('#jobs').replaceChildren(); $('#jobsEmpty').hidden = false; state.anyActive = false;
++  jobEls.clear(); $('#jobs').replaceChildren(); $('#jobsEmpty').hidden = false; state.anyActive = false; state.doneBy = {};
+ }
+ 
+ async function refreshJobs() {
+@@ -674,23 +705,24 @@ async function refreshJobs() {
+ /* ---------- 7. Status layanan ---------- */
+ const SERVICE_NAMES = { redis: 'Redis', minio: 'MinIO', gotenberg: 'Gotenberg' };
+ 
+-function tile(name, state_, tag, detail) {
++function tile(name, st, tag, ...lines) {
+   return el('div', { class: 'card tile' },
+     el('div', { class: 'tile-top' },
+-      el('span', { class: `dot${state_ === 'ok' ? '' : state_ === 'warn' ? ' warn' : ' bad'}` }),
+-      el('span', { text: name }),
++      el('span', { class: st === 'ok' ? 'dot' : `dot ${st}` }),
++      el('span', { class: 'name', text: name }),
+       tag ? el('span', { class: 'tag', text: tag }) : null),
+-    el('small', { text: detail }));
++    lines.map((l, i) => el('small', { class: i === 0 && l.strong ? 'strong' : '', text: l.text || l })));
+ }
+ 
+ async function refreshHealth() {
+-  const box = $('#health'), pill = $('#overall');
++  const box = $('#health'), pill = $('#overall'), live = $('#live');
+   let h;
+   try {
+     const res = await api('/api/health');
+     h = await res.json();
+   } catch (e) {
+     if (e.code === 'auth') return;
++    state.busyNow = false; live.hidden = true;
+     box.replaceChildren(tile('API', 'bad', 'Python', 'Tidak terjangkau'));
+     pill.className = 'pill warn'; pill.textContent = 'API tidak terjangkau';
+     return;
+@@ -705,12 +737,21 @@ async function refreshHealth() {
+   workers.forEach((w) => {
+     const q = String(w.queue || '').split(':').pop();
+     const wait = (h.queue_length || {})[q] ?? 0, run = (h.processing || {})[q] ?? 0;
+-    tiles.push(tile(w.service, 'ok', w.language, `Antrean ${wait} · diproses ${run}`));
++    tiles.push(tile(w.service, run > 0 ? 'busy' : 'ok', w.language,
++      run > 0 ? { text: `Memproses ${run} job`, strong: true } : 'Siap menerima job',
++      `Antrean ${wait} · selesai di riwayatmu ${state.doneBy[w.service] || 0}`));
+   });
+   if (!workers.length) { allOk = false; tiles.push(tile('Worker', 'warn', null, 'Belum ada worker aktif')); }
+   box.replaceChildren(...tiles);
++
++  const sum = (o) => Object.values(o || {}).reduce((a, b) => a + b, 0);
++  const wait = sum(h.queue_length), run = sum(h.processing);
++  state.busyNow = wait + run > 0;
+   pill.className = `pill ${allOk ? 'ok' : 'warn'}`;
+-  pill.textContent = allOk ? 'Semua layanan siap' : 'Ada layanan bermasalah';
++  pill.textContent = !allOk ? 'Ada layanan bermasalah'
++    : state.busyNow ? `Semua siap · ${run} diproses · ${wait} antre` : 'Semua layanan siap';
++  live.hidden = false;
++  $('#updated').textContent = `Diperbarui ${new Date().toLocaleTimeString('id-ID')}`;
+ }
+ 
+ /* ---------- 8. Polling & mulai ---------- */
+@@ -724,7 +765,7 @@ function startPolling() {
+     }
+   };
+   loop(refreshJobs, () => (state.anyActive ? 1000 : 4000));
+-  loop(refreshHealth, () => 5000);
++  loop(refreshHealth, () => (state.anyActive || state.busyNow ? 1500 : 5000));
+ }
+ const stopPolling = () => { gen++; };
+ 
