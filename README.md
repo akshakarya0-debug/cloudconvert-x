@@ -44,7 +44,7 @@ Tidak ada layanan yang memanggil fungsi layanan lain. Semuanya hanya memakai tig
 
 Kontrak yang wajib dipatuhi setiap worker:
 
-**Pesan job** (JSON, di-`LPUSH` API ke `queue:<doc|image|media>`, di-`BRPOP` worker):
+**Pesan job** (JSON, di-`LPUSH` API ke `queue:<doc|image|media>`, diambil worker dengan `BRPOPLPUSH` ke `processing:<nama>`):
 ```json
 {"job_id":"a1b2...","category":"image","input_key":"inputs/a1b2.../foto.png","filename":"foto.png","target":"webp"}
 ```
@@ -131,14 +131,30 @@ curl -OJ http://localhost:8000/api/jobs/<job_id>/download
 
 Daftar ini ada di satu tempat: `services/api/formats.json`.
 
+## Akun dan login
+
+Semua endpoint (kecuali `/api/ping`) butuh login. Tidak ada pendaftaran terbuka; akun dibuat admin:
+
+```bash
+docker compose exec api python manage.py tambah-pengguna budi@contoh.com --nama "Budi"
+docker compose exec api python manage.py daftar
+docker compose exec api python manage.py ganti-password budi@contoh.com
+docker compose exec api python manage.py nonaktifkan budi@contoh.com   # sesinya langsung dicabut
+```
+
+Akun disimpan di SQLite (volume `api_data`), kata sandi sebagai hash argon2, sesi berupa cookie `HttpOnly` dengan token acak (disimpan di Redis sebagai hash, berlaku `SESSION_DAYS` hari). Tiap job hanya terlihat dan bisa diunduh oleh pemiliknya. Lima kali salah kata sandi untuk satu email memblokir email itu 15 menit.
+
 ## Endpoint API
 
 | Metode | Path | Fungsi |
 |---|---|---|
+| POST | `/api/auth/login` | JSON `email`, `password`. Mengatur cookie sesi |
+| POST | `/api/auth/logout` | Mengakhiri sesi |
+| GET | `/api/auth/me` | Pengguna yang sedang masuk |
 | GET | `/api/health` | Status Redis, MinIO, Gotenberg, worker aktif, panjang antrean |
 | GET | `/api/formats` | Matriks format |
 | POST | `/api/jobs` | Form: `file`, `target`. Balasan 202 + `job_id` |
-| GET | `/api/jobs` | 20 job terakhir |
+| GET | `/api/jobs` | 20 job terakhir milik pengguna yang masuk |
 | GET | `/api/jobs/{id}` | Status dan progres |
 | GET | `/api/jobs/{id}/download` | Unduh hasil (setelah `done`) |
 
@@ -156,13 +172,13 @@ docker compose down -v                     # matikan + hapus data
 
 1. **Bunuh worker saat idle**: `docker compose stop worker-image`. Panel status menandai worker hilang dalam ±15 detik. Kirim gambar, job menunggu di antrean. Jalankan lagi (`start`), job otomatis diproses. Ini bukti antrean memisahkan layanan.
 2. **Scale**: kirim banyak gambar sambil `--scale worker-image=3`, lihat kolom `worker` berganti-ganti host.
-3. **Tambah bahasa baru**: worker apa saja (Rust, Java, PHP, ...) cukup: `BRPOP queue:<nama>`, baca JSON, ambil file dari S3, tulis hasil, dan `HSET job:<id> ...` sesuai kontrak di atas. Tambahkan kategori di `formats.json` dan satu blok di `docker-compose.yml`.
+3. **Tambah bahasa baru**: worker apa saja (Rust, Java, PHP, ...) cukup: `BRPOPLPUSH queue:<nama> processing:<nama>`, set `lease:<job_id>` (TTL 30 dtk) dan perbarui tiap ±5 dtk selama bekerja, baca JSON, ambil file dari S3, tulis hasil, `HSET job:<id> ...` sesuai kontrak di atas, lalu `LREM processing:<nama> 1 <pesan>` dan `DEL lease:<job_id>`. Tambahkan kategori di `formats.json` dan satu blok di `docker-compose.yml`.
 
 ## Keterbatasan versi ini (sengaja dibuat sederhana)
 
-- **Job hilang jika worker mati saat memproses.** `BRPOP` mengeluarkan pesan dari antrean; bila kontainer mati di tengah, job tetap `processing`. Perbaikan nanti: `BLMOVE` ke daftar "processing" + pemulih, atau pindah ke BullMQ/RabbitMQ/NATS JetStream.
+- **Worker mati saat memproses**: pesan tetap di `processing:<nama>`. Bila lease job habis ±20 dtk, API mengembalikannya ke antrean (maksimal 3 percobaan, lalu `failed`). Konsekuensi: job bisa terproses lebih dari sekali (hasilnya ditimpa di kunci yang sama, jadi aman). Perubahan ini di `recover_orphans()` pada `services/api/main.py`.
 - **Tipe file hanya dicek lewat ekstensi.** Untuk produksi tambahkan pengecekan magic bytes dan pemindaian ClamAV.
-- **Tanpa autentikasi dan kuota.** Jangan buka ke internet apa adanya.
+- **Belum ada kuota per pengguna.** Pengguna yang sudah masuk tetap bisa mengunggah tanpa batas jumlah (hanya dibatasi ukuran file). Pasang pagar tambahan (mis. Cloudflare Access) bila dibuka ke internet.
 - **Status via polling 1 detik**, belum SSE.
 - **Upload lewat API** (bukan presigned URL), cukup untuk laptop.
 - **Status job di Redis** (kedaluwarsa 24 jam); belum ada PostgreSQL/riwayat permanen.
@@ -196,7 +212,7 @@ git push -u origin main
 
 1. Presigned upload langsung ke MinIO + unggah bertahap
 2. Antrean tahan-gagal (BLMOVE / BullMQ / NATS) dan retry otomatis
-3. PostgreSQL untuk pengguna dan riwayat, autentikasi, kuota
+3. Kuota per pengguna, API key, dan riwayat (PostgreSQL bila pengguna bertambah banyak)
 4. SSE menggantikan polling
 5. Validasi magic bytes + ClamAV
 6. Bungkus frontend dengan Tauri (desktop)

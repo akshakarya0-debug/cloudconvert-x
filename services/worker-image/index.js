@@ -6,6 +6,8 @@ const sharp = require('sharp');
 const { S3Client, GetObjectCommand, PutObjectCommand } = require('@aws-sdk/client-s3');
 
 const QUEUE = 'queue:image';
+const PROCESSING = 'processing:image'; // pesan yang sedang dikerjakan (tahan-gagal)
+const LEASE_TTL = 30; // detik; diperbarui heartbeat selama job berjalan
 const BUCKET = process.env.S3_BUCKET || 'ccx';
 const HOST = os.hostname();
 const MAX_WIDTH = parseInt(process.env.IMAGE_MAX_WIDTH || '2560', 10);
@@ -32,6 +34,7 @@ const SHARP_FORMAT = { jpg: 'jpeg', jpeg: 'jpeg', png: 'png', webp: 'webp', avif
 const MIME = { jpg: 'image/jpeg', png: 'image/png', webp: 'image/webp', avif: 'image/avif', tiff: 'image/tiff', gif: 'image/gif' };
 
 let running = true;
+let currentJob = null;
 for (const sig of ['SIGTERM', 'SIGINT']) process.on(sig, () => { running = false; });
 
 const log = (...a) => console.log(new Date().toISOString(), '[worker-image]', ...a);
@@ -39,7 +42,10 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 async function heartbeat() {
   const info = { service: 'worker-image', language: 'Node.js', queue: QUEUE, host: HOST, ts: Date.now() / 1000 };
-  try { await cmd.set(`worker:image:${HOST}`, JSON.stringify(info), 'EX', 15); } catch (_) { /* abaikan */ }
+  try {
+    await cmd.set(`worker:image:${HOST}`, JSON.stringify(info), 'EX', 15);
+    if (currentJob) await cmd.set(`lease:${currentJob}`, HOST, 'EX', LEASE_TTL); // perpanjang lease
+  } catch (_) { /* abaikan */ }
 }
 
 const update = (id, fields) => cmd.hset(`job:${id}`, fields);
@@ -85,15 +91,38 @@ async function main() {
   const timer = setInterval(heartbeat, 5000);
   log('siap, menunggu job di', QUEUE);
   while (running) {
-    let item;
+    let raw;
     try {
-      item = await blocking.brpop(QUEUE, 5);
+      // atomik: ambil dari antrean DAN catat di processing; pesan tidak hilang
+      raw = await blocking.brpoplpush(QUEUE, PROCESSING, 5);
     } catch (e) {
       console.warn('redis error:', e.message);
       await sleep(2000);
       continue;
     }
-    if (item) await handle(JSON.parse(item[1]));
+    if (!raw) continue;
+    let job;
+    try {
+      job = JSON.parse(raw);
+      if (!job.job_id) throw new Error('job_id kosong');
+    } catch (e) {
+      console.warn('pesan tidak valid, dibuang:', raw.slice(0, 100));
+      await cmd.lrem(PROCESSING, 1, raw).catch(() => {});
+      continue;
+    }
+    currentJob = job.job_id;
+    try {
+      await cmd.set(`lease:${job.job_id}`, HOST, 'EX', LEASE_TTL);
+      await handle(job);
+      await cmd.lrem(PROCESSING, 1, raw); // selesai: hapus dari processing
+      await cmd.del(`lease:${job.job_id}`);
+    } catch (e) {
+      // pesan tetap di processing; API akan memulihkannya
+      console.warn('redis error saat job', job.job_id, e.message);
+      await sleep(2000);
+    } finally {
+      currentJob = null;
+    }
   }
   clearInterval(timer);
   log('berhenti dengan rapi');

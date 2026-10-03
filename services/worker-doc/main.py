@@ -20,6 +20,8 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [worker-doc] %(messa
 log = logging.getLogger("worker-doc")
 
 QUEUE = "queue:doc"
+PROCESSING = "processing:doc"   # pesan yang sedang dikerjakan (tahan-gagal)
+LEASE_TTL = 30                  # detik; diperbarui heartbeat selama job berjalan
 BUCKET = os.environ.get("S3_BUCKET", "ccx")
 GOTENBERG = os.environ.get("GOTENBERG_URL", "http://gotenberg:3000")
 HOST = socket.gethostname()
@@ -46,6 +48,7 @@ MD_TEMPLATE = (
 )
 
 running = True
+current_job = None
 
 
 def stop(*_):
@@ -63,6 +66,9 @@ def heartbeat():
                 "host": HOST, "ts": time.time()}
         try:
             r.set(f"worker:doc:{HOST}", json.dumps(info), ex=15)
+            jid = current_job
+            if jid:  # perpanjang lease selama job berjalan
+                r.set(f"lease:{jid}", HOST, ex=LEASE_TTL)
         except Exception:  # noqa: BLE001
             pass
         time.sleep(5)
@@ -118,17 +124,38 @@ def handle(job):
 
 
 def main():
+    global current_job
     threading.Thread(target=heartbeat, daemon=True).start()
     log.info("siap, menunggu job di %s", QUEUE)
     while running:
         try:
-            item = r.brpop(QUEUE, timeout=5)
+            # atomik: ambil dari antrean DAN catat di processing; pesan tidak hilang
+            raw = r.brpoplpush(QUEUE, PROCESSING, timeout=5)
         except redis.RedisError as e:
             log.warning("redis error: %s", e)
             time.sleep(2)
             continue
-        if item:
-            handle(json.loads(item[1]))
+        if not raw:
+            continue
+        try:
+            job = json.loads(raw)
+            jid = job["job_id"]
+        except (ValueError, KeyError, TypeError):
+            log.warning("pesan tidak valid, dibuang: %.100s", raw)
+            r.lrem(PROCESSING, 1, raw)
+            continue
+        current_job = jid
+        try:
+            r.set(f"lease:{jid}", HOST, ex=LEASE_TTL)
+            handle(job)
+            r.lrem(PROCESSING, 1, raw)   # selesai: hapus dari processing
+            r.delete(f"lease:{jid}")
+        except redis.RedisError as e:
+            # pesan tetap di processing; API akan memulihkannya
+            log.warning("redis error saat job %s: %s", jid, e)
+            time.sleep(2)
+        finally:
+            current_job = None
     log.info("berhenti dengan rapi")
 
 

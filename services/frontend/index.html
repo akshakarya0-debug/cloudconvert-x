@@ -1,143 +1,836 @@
 <!doctype html>
-<html lang="id">
+<html lang="id" data-theme="light">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>CloudConvert-X</title>
+<title>CloudConvert-X · Konverter File</title>
+<meta name="description" content="Ubah dokumen, gambar, audio, dan video ke format lain.">
+<!-- Tema ditetapkan SEBELUM halaman digambar supaya tidak berkedip. -->
+<script>
+(function () {
+  var t = null;
+  try { t = localStorage.getItem('ccx_theme'); } catch (e) {}
+  if (t !== 'light' && t !== 'dark') {
+    t = window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+  }
+  document.documentElement.setAttribute('data-theme', t);
+})();
+</script>
 <style>
-  :root{--bg:#f6f7f9;--card:#fff;--tx:#1c2430;--mut:#6b7686;--bd:#dde2ea;--pri:#2f6fed;--ok:#1a9d5c;--err:#d23f3f}
-  @media (prefers-color-scheme:dark){:root{--bg:#12161c;--card:#1a2029;--tx:#e6eaf0;--mut:#93a0b2;--bd:#2b3441;--pri:#5b8def;--ok:#3dcc8a;--err:#ff6b6b}}
-  *{box-sizing:border-box}
-  body{margin:0;background:var(--bg);color:var(--tx);font:15px/1.5 system-ui,sans-serif}
-  main{max-width:820px;margin:0 auto;padding:24px 16px 64px}
-  h1{margin:0 0 4px;font-size:26px} .sub{color:var(--mut);margin:0 0 20px}
-  .card{background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:18px;margin-bottom:16px}
-  #drop{border:2px dashed var(--bd);border-radius:12px;padding:32px;text-align:center;cursor:pointer;color:var(--mut)}
-  #drop.over{border-color:var(--pri);color:var(--pri)}
-  .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:14px}
-  select,button{font:inherit;padding:9px 14px;border-radius:8px;border:1px solid var(--bd);background:var(--card);color:var(--tx)}
-  button.primary{background:var(--pri);border-color:var(--pri);color:#fff;cursor:pointer}
-  button:disabled{opacity:.5;cursor:not-allowed}
-  .chips{display:flex;flex-wrap:wrap;gap:8px}
-  .chip{font-size:13px;padding:4px 10px;border-radius:999px;border:1px solid var(--bd)}
-  .chip.ok{color:var(--ok);border-color:var(--ok)} .chip.bad{color:var(--err);border-color:var(--err)}
-  .job{border-top:1px solid var(--bd);padding:12px 0} .job:first-child{border-top:0}
-  .bar{height:6px;background:var(--bd);border-radius:4px;overflow:hidden;margin-top:6px}
-  .bar>i{display:block;height:100%;background:var(--pri);transition:width .3s}
-  .meta{color:var(--mut);font-size:13px} .err{color:var(--err)}
-  a.dl{color:var(--pri);font-weight:600;text-decoration:none}
-  h2{font-size:16px;margin:0 0 10px}
+/* =====================================================================
+   1. TOKEN DESAIN  (ubah warna/ukuran hanya di sini)
+   ===================================================================== */
+:root {
+  --bg: #f4f5fb;          --surface: #ffffff;      --surface-2: #f7f8fd;
+  --text: #1b1f2e;        --muted: #626a80;        --line: #e2e5f0;
+  --brand: #4f5bd5;       --brand-ink: #ffffff;    --brand-soft: #eceeff;   --brand-line: #c7ccf6;
+  --ok: #126f37;          --ok-soft: #e4f5ea;
+  --warn: #a8570a;        --warn-soft: #fdf1de;
+  --err: #c4262e;         --err-soft: #fce9ea;
+  --shadow: 0 1px 2px rgba(20, 24, 50, .05), 0 10px 30px rgba(20, 24, 50, .07);
+  --r-lg: 20px; --r-md: 14px; --r-sm: 10px;
+  --font: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", "Helvetica Neue", Arial, sans-serif;
+  --header-h: 64px;
+  color-scheme: light;
+}
+:root[data-theme="dark"] {
+  --bg: #0d1020;          --surface: #161a2e;      --surface-2: #1c2138;
+  --text: #e8eaf6;        --muted: #9aa2c0;        --line: #2a3050;
+  --brand: #8089ff;       --brand-ink: #0d1020;    --brand-soft: #232a55;   --brand-line: #3a4482;
+  --ok: #4ade80;          --ok-soft: #12301f;
+  --warn: #fbbf24;        --warn-soft: #382c10;
+  --err: #ff7b82;         --err-soft: #3b1b20;
+  --shadow: 0 1px 2px rgba(0, 0, 0, .35), 0 10px 30px rgba(0, 0, 0, .4);
+  color-scheme: dark;
+}
+
+/* =====================================================================
+   2. DASAR
+   ===================================================================== */
+*, *::before, *::after { box-sizing: border-box; }
+html { scroll-padding-top: calc(var(--header-h) + 12px); }
+@media (prefers-reduced-motion: no-preference) { html { scroll-behavior: smooth; } }
+body {
+  margin: 0; background: var(--bg); color: var(--text);
+  font: 16px/1.55 var(--font); -webkit-font-smoothing: antialiased;
+}
+h1, h2, h3, p { margin: 0; }
+a { color: var(--brand); }
+[hidden] { display: none !important; }
+.wrap { max-width: 1040px; margin: 0 auto; padding: 0 20px; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.skip { position: absolute; left: 12px; top: -48px; background: var(--brand); color: var(--brand-ink); padding: 8px 14px; border-radius: var(--r-sm); z-index: 50; }
+.skip:focus { top: 10px; }
+.ic { width: 1.25em; height: 1.25em; flex: none; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+:focus-visible { outline: 3px solid var(--brand-line); outline-offset: 2px; border-radius: 6px; }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; animation: none !important; } }
+
+/* =====================================================================
+   3. KOMPONEN
+   ===================================================================== */
+/* Tombol */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  font: inherit; font-weight: 600; line-height: 1.2; padding: 10px 16px;
+  border-radius: 12px; border: 1px solid transparent; cursor: pointer;
+  transition: background .15s, border-color .15s, transform .05s;
+}
+.btn:active:not(:disabled) { transform: translateY(1px); }
+.btn:disabled { opacity: .5; cursor: not-allowed; }
+.btn-primary { background: var(--brand); color: var(--brand-ink); }
+.btn-primary:hover:not(:disabled) { filter: brightness(1.08); }
+.btn-ghost { background: var(--surface); color: var(--text); border-color: var(--line); }
+.btn-ghost:hover:not(:disabled) { background: var(--surface-2); }
+.btn-lg { padding: 14px 26px; font-size: 18px; border-radius: 14px; }
+.icon-btn {
+  display: inline-grid; place-items: center; width: 40px; height: 40px; padding: 0;
+  border-radius: 12px; border: 1px solid var(--line); background: var(--surface);
+  color: var(--muted); cursor: pointer; transition: background .15s, color .15s;
+}
+.icon-btn:hover:not(:disabled) { background: var(--surface-2); color: var(--text); }
+.icon-btn:disabled { opacity: .45; cursor: not-allowed; }
+
+/* Kartu, input, lencana */
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-lg); box-shadow: var(--shadow); }
+.field { display: block; margin-top: 14px; font-size: 14px; color: var(--muted); }
+input[type="email"], input[type="password"], .select {
+  font: inherit; color: var(--text); background: var(--surface-2);
+  border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px;
+}
+.field input { display: block; width: 100%; margin-top: 6px; }
+.select { padding: 7px 10px; font-weight: 600; cursor: pointer; }
+.select:disabled { cursor: default; opacity: .8; }
+.badge { display: inline-block; font-size: 12px; font-weight: 700; padding: 2px 9px; border-radius: 999px; }
+.b-queued { background: var(--warn-soft); color: var(--warn); }
+.b-processing { background: var(--brand-soft); color: var(--brand); }
+.b-done { background: var(--ok-soft); color: var(--ok); }
+.b-failed { background: var(--err-soft); color: var(--err); }
+.bar { height: 6px; background: var(--line); border-radius: 999px; overflow: hidden; }
+.bar > i { display: block; height: 100%; width: 0; background: var(--brand); border-radius: 999px; transition: width .3s; }
+.muted { color: var(--muted); }
+.fine { font-size: 13px; color: var(--muted); }
+.err-text { color: var(--err); }
+
+/* =====================================================================
+   4. HALAMAN
+   ===================================================================== */
+/* Header */
+.topbar {
+  position: sticky; top: 0; z-index: 40; height: var(--header-h);
+  background: var(--surface); border-bottom: 1px solid var(--line);
+}
+@supports (background: color-mix(in srgb, red 50%, blue)) {
+  .topbar { background: color-mix(in srgb, var(--surface) 85%, transparent); backdrop-filter: blur(10px); }
+}
+.bar-in { height: 100%; display: flex; align-items: center; gap: 20px; }
+.brand { display: inline-flex; align-items: center; gap: 10px; font-weight: 800; font-size: 19px; color: var(--text); text-decoration: none; letter-spacing: -.01em; }
+.brand b { color: var(--brand); }
+.logo { width: 32px; height: 32px; }
+.nav { display: flex; gap: 4px; margin-left: 12px; }
+.nav a { color: var(--muted); text-decoration: none; font-weight: 600; padding: 8px 12px; border-radius: 10px; }
+.nav a:hover { background: var(--surface-2); color: var(--text); }
+.bar-right { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+.user { display: flex; align-items: center; gap: 10px; }
+.avatar { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; background: var(--brand-soft); color: var(--brand); font-weight: 800; }
+#who { font-weight: 600; max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Hero + area unggah */
+.hero { text-align: center; padding: 48px 20px 24px; }
+.hero h1 { font-size: clamp(2.1rem, 5.5vw, 3.2rem); font-weight: 800; letter-spacing: -.025em; line-height: 1.1; }
+.lead { margin: 12px auto 28px; max-width: 560px; color: var(--muted); font-size: 18px; }
+.drop {
+  display: flex; flex-direction: column; align-items: center; gap: 12px;
+  padding: 48px 24px 32px; background: var(--surface);
+  border: 2px dashed var(--brand-line); border-radius: var(--r-lg);
+  transition: background .15s, border-color .15s;
+}
+.drop.over { background: var(--brand-soft); border-color: var(--brand); }
+.drop-ic { display: grid; place-items: center; width: 64px; height: 64px; border-radius: 50%; background: var(--brand-soft); color: var(--brand); }
+.drop-ic .ic { width: 30px; height: 30px; }
+.chips { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 4px; }
+.chip { font-size: 13px; font-weight: 600; padding: 4px 12px; border-radius: 999px; background: var(--surface-2); border: 1px solid var(--line); color: var(--muted); }
+.drop .fine { max-width: 520px; margin-top: 8px; }
+
+/* Daftar file yang akan dikonversi */
+.staged { margin-top: 16px; text-align: left; overflow: hidden; }
+.f-row { display: grid; grid-template-columns: 44px minmax(0, 1fr) auto 40px; align-items: center; gap: 12px; padding: 14px 16px; border-top: 1px solid var(--line); }
+.f-row:first-child { border-top: 0; }
+.f-ic { display: grid; place-items: center; width: 44px; height: 44px; border-radius: 12px; background: var(--brand-soft); color: var(--brand); }
+.f-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.f-meta { font-size: 13px; color: var(--muted); }
+.f-act { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; justify-content: flex-end; }
+.f-to { display: inline-flex; align-items: center; gap: 8px; font-size: 14px; color: var(--muted); }
+.f-up { min-width: 180px; display: grid; gap: 6px; }
+.f-err { font-size: 13px; color: var(--err); }
+.staged-foot { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 14px 16px; background: var(--surface-2); border-top: 1px solid var(--line); }
+.staged-foot #msg { margin-right: auto; font-size: 14px; color: var(--muted); }
+.staged-foot #msg.err-text { color: var(--err); }
+
+/* Bagian umum */
+.section { padding: 28px 20px; }
+.sec-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+.sec-head h2 { font-size: 22px; letter-spacing: -.01em; }
+.features { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; }
+.feature { padding: 22px; }
+.feature .f-ic { margin-bottom: 14px; }
+.feature h3 { font-size: 17px; margin-bottom: 6px; }
+.feature p { color: var(--muted); font-size: 15px; }
+
+/* Riwayat */
+.jobs { list-style: none; margin: 0; padding: 0; overflow: hidden; }
+.job { display: grid; grid-template-columns: 44px minmax(0, 1fr) auto; align-items: center; gap: 14px; padding: 14px 16px; border-top: 1px solid var(--line); }
+.job:first-child { border-top: 0; }
+.job-title { font-weight: 600; overflow-wrap: anywhere; }
+.job-title .arrow { color: var(--muted); font-weight: 400; margin: 0 6px; }
+.job-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 10px; margin-top: 2px; font-size: 13px; color: var(--muted); }
+.job .bar { margin-top: 8px; max-width: 360px; }
+.job-err { margin-top: 4px; font-size: 13px; color: var(--err); overflow-wrap: anywhere; }
+.job-detail { margin-top: 4px; color: var(--muted); }
+.job-detail summary { cursor: pointer; font-size: 12px; }
+.job-detail code { display: block; margin-top: 4px; font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.empty { display: grid; place-items: center; gap: 8px; padding: 36px 16px; color: var(--muted); text-align: center; }
+.empty .ic { width: 32px; height: 32px; }
+
+/* Status layanan */
+.pill { display: inline-flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 600; padding: 4px 12px; border-radius: 999px; }
+.pill.ok { background: var(--ok-soft); color: var(--ok); }
+.pill.warn { background: var(--warn-soft); color: var(--warn); }
+.tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 12px; }
+.tile { padding: 14px 16px; display: grid; gap: 2px; }
+.tile-top { display: flex; align-items: center; gap: 8px; font-weight: 700; }
+.dot { width: 10px; height: 10px; border-radius: 50%; background: var(--ok); flex: none; }
+.dot.bad { background: var(--err); }
+.dot.warn { background: var(--warn); }
+.dot.busy { background: var(--brand); color: var(--brand); animation: ping 1.4s ease-out infinite; }
+.tile-top { flex-wrap: wrap; }
+.tile-top .name { white-space: nowrap; }
+.tile .tag { margin-left: auto; font-size: 12px; font-weight: 700; color: var(--brand); background: var(--brand-soft); padding: 1px 8px; border-radius: 999px; }
+.tile small { color: var(--muted); display: block; }
+.tile small.strong { color: var(--text); font-weight: 600; }
+.sec-meta { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.live { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); }
+.pulse { width: 8px; height: 8px; border-radius: 50%; color: var(--ok); background: currentColor; animation: ping 1.8s ease-out infinite; }
+@keyframes ping { 0% { box-shadow: 0 0 0 0 currentColor; } 70% { box-shadow: 0 0 0 8px transparent; } 100% { box-shadow: 0 0 0 0 transparent; } }
+
+/* Login */
+.auth { max-width: 440px; padding: 8vh 20px 40px; }
+.auth h1 { font-size: 28px; font-weight: 800; letter-spacing: -.02em; margin: 14px 0 4px; }
+.auth form { padding: 24px; margin-top: 20px; }
+.auth .btn { width: 100%; margin-top: 20px; }
+#loginMsg { margin-top: 12px; min-height: 1.4em; font-size: 14px; }
+
+/* Footer */
+.foot { margin-top: 24px; padding: 28px 20px 40px; border-top: 1px solid var(--line); display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; color: var(--muted); font-size: 14px; }
+
+/* =====================================================================
+   5. RESPONSIF
+   ===================================================================== */
+@media (max-width: 720px) {
+  .nav, #who { display: none; }
+  .hero { padding-top: 32px; }
+  .drop { padding: 36px 16px 24px; }
+}
+@media (max-width: 640px) {
+  .f-row { grid-template-columns: 44px minmax(0, 1fr) 40px; }
+  .f-row .f-act { grid-column: 2 / 4; grid-row: 2; justify-content: flex-start; }
+  .job { grid-template-columns: 44px minmax(0, 1fr); }
+  .job .job-action { grid-column: 2; }
+  .staged-foot .btn-lg { width: 100%; }
+}
 </style>
 </head>
 <body>
-<main>
-  <h1>CloudConvert-X</h1>
-  <p class="sub">Konversi dokumen, gambar, audio, dan video. Dikerjakan layanan Python, Node.js, dan Go.</p>
 
-  <div class="card">
-    <h2>Status layanan</h2>
-    <div class="chips" id="health">memuat...</div>
-  </div>
+<!-- Ikon (sprite SVG; dipakai lewat <use href="#i-nama">) -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <symbol id="i-logo" viewBox="0 0 32 32">
+    <rect width="32" height="32" rx="9" style="fill:var(--brand)"/>
+    <g fill="none" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="stroke:var(--brand-ink)">
+      <path d="M9.5 14.5A6.5 6.5 0 0 1 21 11"/><path d="M21.5 7v4.5H17"/>
+      <path d="M22.5 17.5A6.5 6.5 0 0 1 11 21"/><path d="M10.5 25v-4.5H15"/>
+    </g>
+  </symbol>
+  <symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 16V4m0 0L8 8m4-4 4 4M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/></symbol>
+  <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 4v12m0 0-4-4m4 4 4-4M4 20h16"/></symbol>
+  <symbol id="i-file" viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></symbol>
+  <symbol id="i-doc" viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 13h6M9 17h6"/></symbol>
+  <symbol id="i-image" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="1.6"/><path d="m21 16-5-5-8 9"/></symbol>
+  <symbol id="i-audio" viewBox="0 0 24 24"><path d="M9 18V6l10-2v12"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="16.5" cy="16" r="2.5"/></symbol>
+  <symbol id="i-video" viewBox="0 0 24 24"><rect x="3" y="5" width="13" height="14" rx="2"/><path d="m16 10 5-3v10l-5-3z"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></symbol>
+  <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></symbol>
+  <symbol id="i-moon" viewBox="0 0 24 24"><path d="M21 13.5A8.5 8.5 0 1 1 10.5 3 6.5 6.5 0 0 0 21 13.5z"/></symbol>
+  <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3l8 3v6c0 4.5-3.2 8.3-8 9-4.8-.7-8-4.5-8-9V6z"/><path d="m9 12 2 2 4-4"/></symbol>
+  <symbol id="i-layers" viewBox="0 0 24 24"><path d="m12 3 9 5-9 5-9-5z"/><path d="m3 13 9 5 9-5"/></symbol>
+  <symbol id="i-bolt" viewBox="0 0 24 24"><path d="M13 2 4 14h7l-1 8 9-12h-7z"/></symbol>
+  <symbol id="i-logout" viewBox="0 0 24 24"><path d="M10 4H5a1 1 0 0 0-1 1v14a1 1 0 0 0 1 1h5M15 8l4 4-4 4M19 12H9"/></symbol>
+  <symbol id="i-inbox" viewBox="0 0 24 24"><path d="M3 13h5l1 3h6l1-3h5"/><path d="M5.5 5h13L21 13v5a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-5z"/></symbol>
+</svg>
 
-  <div class="card">
-    <div id="drop">Tarik file ke sini atau klik untuk memilih</div>
-    <input type="file" id="file" hidden>
-    <div class="row">
-      <span id="fname" class="meta">Belum ada file</span>
+<a class="skip" href="#main">Lewati ke konten</a>
+
+<header class="topbar">
+  <div class="wrap bar-in">
+    <a class="brand" href="#top" aria-label="CloudConvert-X, ke atas">
+      <svg class="logo" aria-hidden="true"><use href="#i-logo"/></svg>
+      <span>CloudConvert<b>-X</b></span>
+    </a>
+    <nav class="nav" id="nav" aria-label="Navigasi utama" hidden>
+      <a href="#konversi">Konversi</a>
+      <a href="#riwayat">Riwayat</a>
+      <a href="#layanan">Layanan</a>
+    </nav>
+    <div class="bar-right">
+      <button class="icon-btn" id="themeBtn" type="button" aria-label="Ganti tema"><svg class="ic" aria-hidden="true"><use href="#i-moon"/></svg></button>
+      <div class="user" id="userbox" hidden>
+        <span class="avatar" id="avatar" aria-hidden="true"></span>
+        <span id="who"></span>
+        <button class="btn btn-ghost" id="logout" type="button"><svg class="ic" aria-hidden="true"><use href="#i-logout"/></svg>Keluar</button>
+      </div>
     </div>
-    <div class="row">
-      <label for="target">Ubah ke:</label>
-      <select id="target" disabled></select>
-      <button id="go" class="primary" disabled>Konversi</button>
-    </div>
-    <div id="msg" class="meta" style="margin-top:10px"></div>
   </div>
+</header>
 
-  <div class="card">
-    <h2>Riwayat</h2>
-    <div id="jobs"><span class="meta">Belum ada job</span></div>
+<noscript><p class="wrap" style="padding:24px 20px">Aplikasi ini membutuhkan JavaScript. Aktifkan JavaScript di browsermu.</p></noscript>
+
+<main id="main">
+<span id="top"></span>
+
+  <!-- ============ MASUK ============ -->
+  <section id="login" class="wrap auth" hidden aria-labelledby="loginTitle">
+    <svg class="logo" style="width:48px;height:48px" aria-hidden="true"><use href="#i-logo"/></svg>
+    <h1 id="loginTitle">Masuk ke CloudConvert-X</h1>
+    <p class="muted">Masuk untuk mulai mengonversi file.</p>
+    <form id="loginForm" class="card" novalidate>
+      <label class="field" for="email">Email
+        <input id="email" type="email" autocomplete="username" required>
+      </label>
+      <label class="field" for="password">Kata sandi
+        <input id="password" type="password" autocomplete="current-password" required>
+      </label>
+      <button id="loginBtn" class="btn btn-primary btn-lg" type="submit">Masuk</button>
+      <div id="loginMsg" class="err-text" role="alert"></div>
+    </form>
+    <p class="fine" style="margin-top:16px">Belum punya akun? Minta admin untuk membuatkan.</p>
+  </section>
+
+  <!-- ============ APLIKASI ============ -->
+  <div id="app" hidden>
+
+    <section class="hero wrap" id="konversi" aria-labelledby="heroTitle">
+      <h1 id="heroTitle">Konverter File</h1>
+      <p class="lead">Ubah dokumen, gambar, audio, dan video ke format lain dengan mudah.</p>
+
+      <div class="drop" id="drop">
+        <div class="drop-ic"><svg class="ic" aria-hidden="true"><use href="#i-upload"/></svg></div>
+        <button class="btn btn-primary btn-lg" id="pick" type="button"><svg class="ic" aria-hidden="true"><use href="#i-file"/></svg>Pilih File</button>
+        <p class="muted">atau tarik dan lepas file ke sini</p>
+        <div class="chips" id="types" aria-label="Jenis file yang didukung"></div>
+        <p class="fine">Dengan melanjutkan, kamu menyatakan berhak atas file yang kamu unggah. Semua file dihapus otomatis setelah 24 jam.</p>
+      </div>
+      <input type="file" id="file" multiple hidden>
+
+      <div class="card staged" id="staged" hidden>
+        <ul id="stagedList" style="list-style:none;margin:0;padding:0"></ul>
+        <div class="staged-foot">
+          <span id="msg" role="status" aria-live="polite"></span>
+          <button class="btn btn-ghost" id="clear" type="button">Kosongkan</button>
+          <button class="btn btn-primary btn-lg" id="go" type="button" disabled>Konversi</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="section wrap" id="riwayat" aria-labelledby="riwayatTitle">
+      <div class="sec-head"><h2 id="riwayatTitle">Riwayat</h2><span class="fine">20 job terakhir milik akunmu</span></div>
+      <div class="card">
+        <ul class="jobs" id="jobs"></ul>
+        <div class="empty" id="jobsEmpty"><svg class="ic" aria-hidden="true"><use href="#i-inbox"/></svg><span>Belum ada job. File yang kamu konversi akan muncul di sini.</span></div>
+      </div>
+    </section>
+
+    <section class="section wrap" id="layanan" aria-labelledby="layananTitle">
+      <div class="sec-head"><h2 id="layananTitle">Status layanan</h2><div class="sec-meta"><span class="live" id="live" hidden><i class="pulse" aria-hidden="true"></i><span id="updated"></span></span><span class="pill warn" id="overall">memuat…</span></div></div>
+      <div class="tiles" id="health"></div>
+    </section>
+
+    <section class="section wrap" aria-label="Keunggulan">
+      <div class="features">
+        <div class="card feature">
+          <div class="f-ic"><svg class="ic" aria-hidden="true"><use href="#i-layers"/></svg></div>
+          <h3>Banyak format</h3>
+          <p id="fmtCount">Dokumen, gambar, audio, dan video dalam satu tempat.</p>
+        </div>
+        <div class="card feature">
+          <div class="f-ic"><svg class="ic" aria-hidden="true"><use href="#i-bolt"/></svg></div>
+          <h3>Tiga bahasa, satu antrean</h3>
+          <p>Worker Python, Node.js, dan Go mengerjakan job secara paralel lewat antrean Redis.</p>
+        </div>
+        <div class="card feature">
+          <div class="f-ic"><svg class="ic" aria-hidden="true"><use href="#i-shield"/></svg></div>
+          <h3>Privat</h3>
+          <p>Setiap job hanya bisa dilihat pemiliknya, dan file dihapus otomatis setelah 24 jam.</p>
+        </div>
+      </div>
+    </section>
   </div>
 </main>
 
+<footer class="wrap foot">
+  <span>© <span id="year"></span> CloudConvert-X</span>
+  <span>Python · Node.js · Go · Redis · MinIO</span>
+</footer>
+
 <script>
-const $ = (s) => document.querySelector(s);
-let formats = {}, file = null;
+/* =====================================================================
+   Struktur kode:  1 Util · 2 Tema · 3 API · 4 Tampilan · 5 Unggah
+                   6 Riwayat · 7 Status layanan · 8 Polling & mulai
+   ===================================================================== */
+(() => {
+'use strict';
 
-const extOf = (n) => (n.includes('.') ? n.split('.').pop().toLowerCase() : '');
-const categoryOf = (ext) => Object.entries(formats).find(([, v]) => v.input.includes(ext))?.[0];
+/* ---------- 1. Util ---------- */
+const $ = (s, root = document) => root.querySelector(s);
+const SVGNS = 'http://www.w3.org/2000/svg';
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const CAT = {   // kategori dari /api/formats -> label & ikon
+  document: { label: 'Dokumen', icon: 'doc' },
+  image: { label: 'Gambar', icon: 'image' },
+  audio: { label: 'Audio', icon: 'audio' },
+  video: { label: 'Video', icon: 'video' },
+};
+const STATUS = { queued: 'Antre', processing: 'Diproses', done: 'Selesai', failed: 'Gagal' };
+const MAX_FILES = 10;
 
-async function loadFormats() {
-  formats = (await (await fetch('/api/formats')).json()).categories;
-}
-
-function pick(f) {
-  file = f;
-  $('#fname').textContent = f ? `${f.name} (${(f.size / 1048576).toFixed(2)} MB)` : 'Belum ada file';
-  const sel = $('#target'); sel.innerHTML = '';
-  const cat = f && categoryOf(extOf(f.name));
-  if (!cat) {
-    $('#msg').textContent = f ? `Format .${extOf(f.name)} belum didukung` : '';
-    sel.disabled = true; $('#go').disabled = true; return;
+// Membuat elemen DOM; semua teks lewat textContent/append (aman dari injeksi HTML).
+function el(tag, props = {}, ...kids) {
+  const n = document.createElement(tag);
+  for (const [k, v] of Object.entries(props)) {
+    if (v == null || v === false) continue;
+    if (k === 'class') n.className = v;
+    else if (k === 'text') n.textContent = v;
+    else if (k.startsWith('on')) n.addEventListener(k.slice(2), v);
+    else n.setAttribute(k, v === true ? '' : v);
   }
-  formats[cat].output.filter((o) => o !== extOf(f.name)).forEach((o) => sel.add(new Option(o.toUpperCase(), o)));
-  $('#msg').textContent = `Kategori: ${cat}`;
-  sel.disabled = false; $('#go').disabled = false;
+  n.append(...kids.flat().filter((x) => x != null && x !== false));
+  return n;
+}
+function icon(name, cls = '') {
+  const s = document.createElementNS(SVGNS, 'svg');
+  s.setAttribute('class', ('ic ' + cls).trim());
+  s.setAttribute('aria-hidden', 'true');
+  const u = document.createElementNS(SVGNS, 'use');
+  u.setAttribute('href', '#i-' + name);
+  s.append(u);
+  return s;
+}
+const fmtSize = (b) => (b < 1024 ? `${b} B` : b < 1048576 ? `${Math.round(b / 1024)} KB` : `${(b / 1048576).toFixed(1)} MB`);
+const extOf = (n) => (n.includes('.') ? n.split('.').pop().toLowerCase() : '');
+const rtf = new Intl.RelativeTimeFormat('id', { numeric: 'auto' });
+function ago(ts) {
+  const s = Math.min(0, ts - Date.now() / 1000), a = Math.abs(s);
+  if (a < 45) return 'baru saja';
+  if (a < 3600) return rtf.format(Math.round(s / 60), 'minute');
+  if (a < 86400) return rtf.format(Math.round(s / 3600), 'hour');
+  return rtf.format(Math.round(s / 86400), 'day');
 }
 
-const drop = $('#drop');
-drop.onclick = () => $('#file').click();
-$('#file').onchange = (e) => pick(e.target.files[0]);
-drop.ondragover = (e) => { e.preventDefault(); drop.classList.add('over'); };
-drop.ondragleave = () => drop.classList.remove('over');
-drop.ondrop = (e) => { e.preventDefault(); drop.classList.remove('over'); pick(e.dataTransfer.files[0]); };
+const state = { formats: {}, staged: [], user: null, busy: false, ready: Promise.resolve(), anyActive: false, busyNow: false, doneBy: {} };
+let seq = 0;
 
-$('#go').onclick = async () => {
-  const fd = new FormData();
-  fd.append('file', file); fd.append('target', $('#target').value);
-  $('#go').disabled = true; $('#msg').textContent = 'Mengunggah...';
-  try {
-    const res = await fetch('/api/jobs', { method: 'POST', body: fd });
-    const body = await res.json();
-    if (!res.ok) throw new Error(body.detail || res.status);
-    $('#msg').textContent = `Job ${body.job_id.slice(0, 8)} masuk antrean ${body.queue}`;
-    refreshJobs();
-  } catch (e) { $('#msg').textContent = 'Gagal: ' + e.message; }
-  $('#go').disabled = false;
+/* ---------- 2. Tema ---------- */
+const theme = {
+  saved() { try { const t = localStorage.getItem('ccx_theme'); return t === 'light' || t === 'dark' ? t : null; } catch (_) { return null; } },
+  apply(t) {
+    document.documentElement.setAttribute('data-theme', t);
+    const btn = $('#themeBtn');
+    btn.firstElementChild.firstElementChild.setAttribute('href', t === 'dark' ? '#i-sun' : '#i-moon');
+    btn.setAttribute('aria-label', t === 'dark' ? 'Ganti ke tema terang' : 'Ganti ke tema gelap');
+  },
+  toggle() {
+    const t = document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+    try { localStorage.setItem('ccx_theme', t); } catch (_) {}
+    this.apply(t);
+  },
 };
 
+/* ---------- 3. API ---------- */
+// Semua panggilan lewat sini: bila sesi habis (401), kembali ke halaman masuk.
+async function api(url, opts) {
+  const res = await fetch(url, opts);
+  if (res.status === 401) {
+    showLogin('Sesi berakhir, silakan masuk lagi.');
+    const e = new Error('belum masuk'); e.code = 'auth'; throw e;
+  }
+  return res;
+}
+
+// Unggah dengan XMLHttpRequest supaya progresnya bisa ditampilkan.
+function upload(file, target, onProgress) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', '/api/jobs');
+    xhr.upload.onprogress = (e) => { if (e.lengthComputable) onProgress(e.loaded / e.total); };
+    xhr.onload = () => {
+      let body = {};
+      try { body = JSON.parse(xhr.responseText); } catch (_) {}
+      resolve({ status: xhr.status, body });
+    };
+    xhr.onerror = () => reject(new Error('Koneksi terputus saat mengunggah'));
+    const fd = new FormData();
+    fd.append('file', file); fd.append('target', target);
+    xhr.send(fd);
+  });
+}
+
+/* ---------- 4. Tampilan: masuk / aplikasi ---------- */
+function say(text, kind) {
+  const m = $('#msg');
+  m.textContent = text || '';
+  m.classList.toggle('err-text', kind === 'err');
+}
+
+function showApp(user) {
+  state.user = user;
+  $('#login').hidden = true; $('#app').hidden = false;
+  $('#nav').hidden = false; $('#userbox').hidden = false;
+  $('#who').textContent = user.name;
+  $('#avatar').textContent = (user.name || '?').trim().charAt(0).toUpperCase();
+  state.ready = loadFormats();
+  state.ready.catch((e) => { if (e.code !== 'auth') say('Gagal memuat daftar format', 'err'); });
+  startPolling();
+}
+
+function showLogin(msg = '') {
+  stopPolling();
+  state.user = null; state.busy = false;
+  $('#app').hidden = true; $('#login').hidden = false;
+  $('#nav').hidden = true; $('#userbox').hidden = true;
+  $('#loginMsg').textContent = msg;
+  $('#password').value = '';
+  // Bersihkan data pengguna sebelumnya (penting di komputer bersama).
+  state.staged = []; renderStaged(); say('');
+  clearJobs(); $('#health').replaceChildren();
+}
+
+async function loadFormats() {
+  const res = await api('/api/formats');
+  state.formats = (await res.json()).categories || {};
+  const entries = Object.entries(state.formats);
+  $('#types').replaceChildren(...entries.map(([k, v]) =>
+    el('span', { class: 'chip', title: v.input.join(', ').toUpperCase(), text: `${(CAT[k] || { label: k }).label} · ${v.input.length}` })));
+  const total = new Set(entries.flatMap(([, v]) => v.input)).size;
+  $('#fmtCount').textContent = `Mendukung ${total} format masukan: dokumen, gambar, audio, dan video.`;
+}
+
+/* ---------- 5. Pilih & unggah file ---------- */
+const categoryOf = (ext) => Object.entries(state.formats).find(([, v]) => v.input.includes(ext))?.[0];
+
+async function addFiles(list) {
+  if (state.busy) return;
+  await state.ready.catch(() => {});
+  for (const f of Array.from(list)) {
+    if (state.staged.length >= MAX_FILES) { say(`Maksimal ${MAX_FILES} file sekaligus.`, 'err'); break; }
+    const ext = extOf(f.name), cat = categoryOf(ext);
+    const outs = cat ? state.formats[cat].output.filter((o) => o !== ext) : [];
+    state.staged.push({
+      id: ++seq, file: f, ext, cat, outs, target: outs[0] || '', progress: 0, ui: null,
+      state: cat ? 'ready' : 'unsupported',
+      error: cat ? '' : `Format .${ext || '?'} belum didukung`,
+    });
+  }
+  renderStaged();
+}
+
+function removeStaged(id) {
+  state.staged = state.staged.filter((s) => s.id !== id);
+  say(''); renderStaged();
+}
+
+function stagedRow(s) {
+  const meta = `${fmtSize(s.file.size)}${s.cat ? ' · ' + CAT[s.cat].label : ''}`;
+  let action;
+  if (s.state === 'unsupported') {
+    action = el('div', { class: 'f-act' }, el('span', { class: 'f-err', text: s.error }));
+  } else if (s.state === 'uploading') {
+    const txt = el('span', { class: 'f-meta', text: `Mengunggah… ${Math.round(s.progress * 100)}%` });
+    const fill = el('i'); fill.style.width = `${s.progress * 100}%`;
+    s.ui = { txt, fill };
+    action = el('div', { class: 'f-up' }, txt, el('div', { class: 'bar' }, fill));
+  } else {
+    const sel = el('select', {
+      class: 'select', 'aria-label': `Format tujuan untuk ${s.file.name}`,
+      disabled: s.outs.length < 2 || state.busy,
+      onchange: (e) => { s.target = e.target.value; },
+    }, s.outs.map((o) => el('option', { value: o, selected: o === s.target, text: o.toUpperCase() })));
+    action = el('div', { class: 'f-act' },
+      s.state === 'error' ? el('span', { class: 'f-err', text: s.error }) : null,
+      el('label', { class: 'f-to' }, 'Ubah ke', sel));
+  }
+  return el('li', { class: 'f-row' },
+    el('span', { class: 'f-ic' }, icon(s.cat ? CAT[s.cat].icon : 'file')),
+    el('div', { style: 'min-width:0' },
+      el('div', { class: 'f-name', title: s.file.name, text: s.file.name }),
+      el('div', { class: 'f-meta', text: meta })),
+    action,
+    el('button', {
+      class: 'icon-btn', type: 'button', 'aria-label': `Hapus ${s.file.name}`,
+      disabled: state.busy, onclick: () => removeStaged(s.id),
+    }, icon('x')));
+}
+
+function renderStaged() {
+  $('#staged').hidden = state.staged.length === 0;
+  $('#stagedList').replaceChildren(...state.staged.map(stagedRow));
+  const n = state.staged.filter((s) => s.state === 'ready' || s.state === 'error').length;
+  $('#go').disabled = state.busy || n === 0;
+  $('#go').textContent = state.busy ? 'Mengunggah…' : n > 1 ? `Konversi ${n} file` : 'Konversi';
+  $('#clear').disabled = state.busy;
+  $('#pick').disabled = state.busy;
+}
+
+async function convertAll() {
+  const todo = state.staged.filter((s) => s.state === 'ready' || s.state === 'error');
+  if (!todo.length || state.busy) return;
+  state.busy = true; say('');
+  let ok = 0, fail = 0;
+  for (const s of todo) {
+    s.state = 'uploading'; s.progress = 0; s.error = '';
+    renderStaged();
+    try {
+      const { status, body } = await upload(s.file, s.target, (p) => {
+        s.progress = p;
+        if (s.ui) { s.ui.txt.textContent = `Mengunggah… ${Math.round(p * 100)}%`; s.ui.fill.style.width = `${p * 100}%`; }
+      });
+      if (status === 401) { showLogin('Sesi berakhir, silakan masuk lagi.'); return; }
+      if (status !== 202) {
+        throw new Error(typeof body.detail === 'string' ? body.detail : status === 413 ? 'File terlalu besar' : `Gagal (HTTP ${status})`);
+      }
+      s.state = 'sent'; ok++;
+    } catch (e) {
+      s.state = 'error'; s.error = e.message; fail++;
+    }
+  }
+  state.busy = false;
+  state.staged = state.staged.filter((s) => s.state !== 'sent');
+  renderStaged();
+  say(ok ? `${ok} job masuk antrean${fail ? `, ${fail} gagal` : ''}.` : 'Semua unggahan gagal.', fail ? 'err' : '');
+  refreshJobs().catch(() => {});
+}
+
+/* ---------- 6. Riwayat ---------- */
+const jobEls = new Map();
+
+// Pesan teknis ffmpeg/worker -> kalimat yang bisa dipahami. Teks aslinya tetap tersedia di "Detail teknis".
+const FRIENDLY_ERRORS = [
+  [/does not contain any stream/i, 'File sumber tidak punya jalur audio/video yang dibutuhkan format tujuan. Contoh: rekaman layar tanpa suara tidak bisa diubah ke MP3.'],
+  [/invalid data found when processing input/i, 'File rusak, atau isinya tidak sesuai dengan ekstensinya.'],
+  [/no such file|not found/i, 'File sumber tidak ditemukan di penyimpanan (mungkin sudah kedaluwarsa). Unggah ulang.'],
+];
+function errorNodes(raw) {
+  const hit = FRIENDLY_ERRORS.find(([re]) => re.test(raw));
+  if (!hit) return [raw];
+  return [el('div', { text: hit[1] }),
+    el('details', { class: 'job-detail' }, el('summary', { text: 'Detail teknis' }), el('code', { text: raw }))];
+}
+
+function buildJob(j) {
+  const ic = el('span', { class: 'f-ic' });
+  const name = el('span');
+  const title = el('div', { class: 'job-title' }, name, el('span', { class: 'arrow', text: '→' }));
+  const target = el('span');
+  title.append(target);
+  const badge = el('span', { class: 'badge' });
+  const info = el('span');
+  const when = el('span');
+  const meta = el('div', { class: 'job-meta' }, badge, info, when);
+  const fill = el('i');
+  const bar = el('div', { class: 'bar' }, fill);
+  const err = el('div', { class: 'job-err' });
+  const action = el('div', { class: 'job-action' });
+  const root = el('li', { class: 'job', 'data-id': j.job_id }, ic, el('div', {}, title, meta, bar, err), action);
+  return { root, ic, name, target, badge, info, when, bar, fill, err, action, cat: null, link: null };
+}
+
+function updateJob(r, j) {
+  const cat = j.category && CAT[j.category] ? j.category : null;
+  if (r.cat !== cat) { r.cat = cat; r.ic.replaceChildren(icon(cat ? CAT[cat].icon : 'file')); }
+  r.name.textContent = j.filename || 'file';
+  r.target.textContent = String(j.target || '').toUpperCase();
+  r.badge.className = `badge b-${j.status}`;
+  r.badge.textContent = (STATUS[j.status] || j.status) + (j.status === 'processing' ? ` ${j.progress}%` : '');
+  const lang = /\(([^)]+)\)/.exec(j.worker || '');
+  r.info.textContent = lang ? `dikerjakan ${lang[1]}` : '';
+  r.when.textContent = j.created_at ? ago(j.created_at) : '';
+  const active = j.status === 'queued' || j.status === 'processing';
+  r.bar.hidden = !active; r.fill.style.width = `${j.progress || 0}%`;
+  const raw = j.status === 'failed' ? (j.error || 'Konversi gagal') : '';
+  r.err.hidden = !raw;
+  if (r.errRaw !== raw) { r.errRaw = raw; r.err.replaceChildren(...(raw ? errorNodes(raw) : [])); }  // dibangun ulang hanya bila berubah (agar "Detail teknis" tidak menutup sendiri)
+  if (j.status === 'done' && !r.link) {
+    r.link = el('a', { class: 'btn btn-primary', href: `/api/jobs/${j.job_id}/download`, download: j.output_name || true, title: j.output_name || '' },
+      icon('download'), 'Unduh');
+    r.action.replaceChildren(r.link);
+  } else if (j.status !== 'done' && r.link) { r.link = null; r.action.replaceChildren(); }
+}
+
+function renderJobs(jobs) {
+  const list = $('#jobs');
+  $('#jobsEmpty').hidden = jobs.length > 0;
+  const seen = new Set();
+  jobs.forEach((j, i) => {
+    seen.add(j.job_id);
+    let r = jobEls.get(j.job_id);
+    if (!r) { r = buildJob(j); jobEls.set(j.job_id, r); }
+    updateJob(r, j);
+    if (list.children[i] !== r.root) list.insertBefore(r.root, list.children[i] || null);
+  });
+  for (const [id, r] of jobEls) if (!seen.has(id)) { r.root.remove(); jobEls.delete(id); }
+  state.anyActive = jobs.some((j) => j.status === 'queued' || j.status === 'processing');
+  state.doneBy = {};
+  for (const j of jobs) {
+    const svc = j.status === 'done' && j.worker ? j.worker.split(' ')[0] : null;
+    if (svc) state.doneBy[svc] = (state.doneBy[svc] || 0) + 1;
+  }
+}
+
+function clearJobs() {
+  jobEls.clear(); $('#jobs').replaceChildren(); $('#jobsEmpty').hidden = false; state.anyActive = false; state.doneBy = {};
+}
+
 async function refreshJobs() {
-  try {
-    const jobs = await (await fetch('/api/jobs')).json();
-    const box = $('#jobs');
-    if (!jobs.length) return;
-    box.innerHTML = jobs.map((j) => `
-      <div class="job">
-        <b>${j.filename}</b> → ${String(j.target).toUpperCase()}
-        <span class="meta"> · ${j.status}${j.worker ? ' · ' + j.worker : ''}</span>
-        ${j.status === 'done' ? `<div><a class="dl" href="/api/jobs/${j.job_id}/download">Unduh ${j.output_name}</a></div>` : ''}
-        ${j.status === 'failed' ? `<div class="err">${j.error || 'gagal'}</div>` : ''}
-        ${j.status === 'processing' || j.status === 'queued' ? `<div class="bar"><i style="width:${j.progress}%"></i></div>` : ''}
-      </div>`).join('');
-  } catch (_) {}
+  const res = await api('/api/jobs');
+  if (res.ok) renderJobs(await res.json());
+}
+
+/* ---------- 7. Status layanan ---------- */
+const SERVICE_NAMES = { redis: 'Redis', minio: 'MinIO', gotenberg: 'Gotenberg' };
+
+function tile(name, st, tag, ...lines) {
+  return el('div', { class: 'card tile' },
+    el('div', { class: 'tile-top' },
+      el('span', { class: st === 'ok' ? 'dot' : `dot ${st}` }),
+      el('span', { class: 'name', text: name }),
+      tag ? el('span', { class: 'tag', text: tag }) : null),
+    lines.map((l, i) => el('small', { class: i === 0 && l.strong ? 'strong' : '', text: l.text || l })));
 }
 
 async function refreshHealth() {
-  const box = $('#health');
+  const box = $('#health'), pill = $('#overall'), live = $('#live');
+  let h;
   try {
-    const h = await (await fetch('/api/health')).json();
-    const chip = (label, ok) => `<span class="chip ${ok ? 'ok' : 'bad'}">${label}</span>`;
-    let html = chip('API · Python', true);
-    for (const [k, v] of Object.entries(h.services)) html += chip(`${k} · ${v === 'ok' ? 'ok' : 'down'}`, v === 'ok');
-    html += h.workers.length
-      ? h.workers.map((w) => chip(`${w.service} · ${w.language}`, true)).join('')
-      : chip('belum ada worker aktif', false);
-    box.innerHTML = html;
-  } catch (_) { box.innerHTML = '<span class="chip bad">API tidak terjangkau</span>'; }
+    const res = await api('/api/health');
+    h = await res.json();
+  } catch (e) {
+    if (e.code === 'auth') return;
+    state.busyNow = false; live.hidden = true;
+    box.replaceChildren(tile('API', 'bad', 'Python', 'Tidak terjangkau'));
+    pill.className = 'pill warn'; pill.textContent = 'API tidak terjangkau';
+    return;
+  }
+  const tiles = [tile('API', 'ok', 'Python', 'Siap menerima unggahan')];
+  let allOk = true;
+  for (const [k, v] of Object.entries(h.services || {})) {
+    const ok = v === 'ok'; allOk = allOk && ok;
+    tiles.push(tile(SERVICE_NAMES[k] || k, ok ? 'ok' : 'bad', null, ok ? 'Siap' : 'Bermasalah'));
+  }
+  const workers = h.workers || [];
+  workers.forEach((w) => {
+    const q = String(w.queue || '').split(':').pop();
+    const wait = (h.queue_length || {})[q] ?? 0, run = (h.processing || {})[q] ?? 0;
+    tiles.push(tile(w.service, run > 0 ? 'busy' : 'ok', w.language,
+      run > 0 ? { text: `Memproses ${run} job`, strong: true } : 'Siap menerima job',
+      `Antrean ${wait} · selesai di riwayatmu ${state.doneBy[w.service] || 0}`));
+  });
+  if (!workers.length) { allOk = false; tiles.push(tile('Worker', 'warn', null, 'Belum ada worker aktif')); }
+  box.replaceChildren(...tiles);
+
+  const sum = (o) => Object.values(o || {}).reduce((a, b) => a + b, 0);
+  const wait = sum(h.queue_length), run = sum(h.processing);
+  state.busyNow = wait + run > 0;
+  pill.className = `pill ${allOk ? 'ok' : 'warn'}`;
+  pill.textContent = !allOk ? 'Ada layanan bermasalah'
+    : state.busyNow ? `Semua siap · ${run} diproses · ${wait} antre` : 'Semua layanan siap';
+  live.hidden = false;
+  $('#updated').textContent = `Diperbarui ${new Date().toLocaleTimeString('id-ID')}`;
 }
 
-loadFormats(); refreshHealth(); refreshJobs();
-setInterval(refreshJobs, 1000);
-setInterval(refreshHealth, 5000);
+/* ---------- 8. Polling & mulai ---------- */
+let gen = 0;
+function startPolling() {
+  const g = ++gen;
+  const loop = async (fn, delay) => {
+    while (g === gen) {
+      if (!document.hidden) { try { await fn(); } catch (_) {} }
+      await sleep(delay());
+    }
+  };
+  loop(refreshJobs, () => (state.anyActive ? 1000 : 4000));
+  loop(refreshHealth, () => (state.anyActive || state.busyNow ? 1500 : 5000));
+}
+const stopPolling = () => { gen++; };
+
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden && state.user) { refreshJobs().catch(() => {}); refreshHealth().catch(() => {}); }
+});
+
+// Area tarik-lepas (penghitung mencegah kedipan saat melewati elemen anak)
+const drop = $('#drop'), input = $('#file');
+let depth = 0;
+drop.addEventListener('click', (e) => { if (!e.target.closest('button')) input.click(); });
+drop.addEventListener('dragenter', (e) => { e.preventDefault(); depth++; drop.classList.add('over'); });
+drop.addEventListener('dragover', (e) => e.preventDefault());
+drop.addEventListener('dragleave', () => { if (--depth <= 0) { depth = 0; drop.classList.remove('over'); } });
+drop.addEventListener('drop', (e) => {
+  e.preventDefault(); depth = 0; drop.classList.remove('over');
+  addFiles(e.dataTransfer.files);
+});
+// File yang dijatuhkan di luar area tidak boleh membuka/menimpa halaman.
+window.addEventListener('dragover', (e) => e.preventDefault());
+window.addEventListener('drop', (e) => e.preventDefault());
+
+$('#pick').addEventListener('click', () => input.click());
+input.addEventListener('change', () => { addFiles(input.files); input.value = ''; });
+$('#go').addEventListener('click', convertAll);
+$('#clear').addEventListener('click', () => { state.staged = []; say(''); renderStaged(); });
+$('#themeBtn').addEventListener('click', () => theme.toggle());
+
+$('#loginForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  $('#loginBtn').disabled = true; $('#loginMsg').textContent = 'Memeriksa…';
+  try {
+    const res = await fetch('/api/auth/login', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: $('#email').value, password: $('#password').value }),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(typeof body.detail === 'string' ? body.detail : 'Data tidak valid');
+    $('#loginMsg').textContent = '';
+    showApp(body.user);
+  } catch (err) { $('#loginMsg').textContent = err.message; }
+  $('#loginBtn').disabled = false;
+});
+
+$('#logout').addEventListener('click', async () => {
+  try { await fetch('/api/auth/logout', { method: 'POST' }); } catch (_) {}
+  showLogin('');
+});
+
+// Ikuti pengaturan tema sistem selama pengguna belum memilih sendiri.
+if (window.matchMedia) {
+  const mq = matchMedia('(prefers-color-scheme: dark)');
+  const onChange = (e) => { if (!theme.saved()) theme.apply(e.matches ? 'dark' : 'light'); };
+  if (mq.addEventListener) mq.addEventListener('change', onChange);
+}
+
+theme.apply(document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light');
+$('#year').textContent = new Date().getFullYear();
+(async () => {
+  try {
+    const res = await fetch('/api/auth/me');
+    if (res.ok) showApp((await res.json()).user); else showLogin('');
+  } catch (_) { showLogin('API tidak terjangkau'); }
+})();
+})();
 </script>
 </body>
 </html>

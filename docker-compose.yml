@@ -50,6 +50,9 @@ services:
       <<: *common-env
       GOTENBERG_URL: http://gotenberg:3000
       MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-200}
+      AUTH_DB: /data/users.db
+      SESSION_DAYS: ${SESSION_DAYS:-7}
+    volumes: [api_data:/data]      # akun pengguna (SQLite)
     ports: ["8000:8000"]           # Swagger UI: http://localhost:8000/docs
     depends_on:
       redis: { condition: service_healthy }
@@ -104,3 +107,4 @@ services:
 volumes:
   redis_data: {}
   minio_data: {}
+  api_data: {}

@@ -17,6 +17,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -25,7 +26,14 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-const queueName = "queue:media"
+const (
+	queueName      = "queue:media"
+	processingName = "processing:media" // pesan yang sedang dikerjakan (tahan-gagal)
+	leaseTTL       = 30 * time.Second   // diperbarui leaseKeeper selama job berjalan
+)
+
+// currentJob berisi job_id yang sedang dikerjakan ("" bila menganggur).
+var currentJob atomic.Value
 
 type Job struct {
 	JobID    string `json:"job_id"`
@@ -73,6 +81,17 @@ func heartbeat(ctx context.Context, rdb *redis.Client) {
 		case <-ctx.Done():
 		case <-time.After(5 * time.Second):
 		}
+	}
+}
+
+// leaseKeeper memperpanjang lease job aktif. Sengaja memakai konteks yang tidak
+// dibatalkan SIGTERM: job yang sedang berjalan diselesaikan dulu.
+func leaseKeeper(rdb *redis.Client) {
+	for {
+		if id, _ := currentJob.Load().(string); id != "" {
+			rdb.Set(context.Background(), "lease:"+id, host, leaseTTL)
+		}
+		time.Sleep(5 * time.Second)
 	}
 }
 
@@ -214,10 +233,12 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer stop()
 	go heartbeat(ctx, rdb)
+	go leaseKeeper(rdb)
 
 	log.Printf("siap, menunggu job di %s", queueName)
 	for ctx.Err() == nil {
-		res, err := rdb.BRPop(ctx, 5*time.Second, queueName).Result()
+		// atomik: ambil dari antrean DAN catat di processing; pesan tidak hilang
+		raw, err := rdb.BRPopLPush(ctx, queueName, processingName, 5*time.Second).Result()
 		if err == redis.Nil || ctx.Err() != nil {
 			continue
 		}
@@ -226,12 +247,19 @@ func main() {
 			time.Sleep(2 * time.Second)
 			continue
 		}
+		bg := context.Background()
 		var job Job
-		if err := json.Unmarshal([]byte(res[1]), &job); err != nil {
-			log.Printf("pesan tidak valid: %v", err)
+		if err := json.Unmarshal([]byte(raw), &job); err != nil || job.JobID == "" {
+			log.Printf("pesan tidak valid, dibuang: %.100s", raw)
+			rdb.LRem(bg, processingName, 1, raw)
 			continue
 		}
+		currentJob.Store(job.JobID)
+		rdb.Set(bg, "lease:"+job.JobID, host, leaseTTL)
 		handle(rdb, mc, job)
+		rdb.LRem(bg, processingName, 1, raw) // selesai: hapus dari processing
+		rdb.Del(bg, "lease:"+job.JobID)
+		currentJob.Store("")
 	}
 	log.Println("berhenti dengan rapi")
 }
