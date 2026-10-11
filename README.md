@@ -57,7 +57,7 @@ flowchart LR
 
 | Layanan | Teknologi | Peran |
 |---|---|---|
-| `frontend` | HTML/JS + Nginx | Menyajikan halaman web dan meneruskan `/api` ke API (Nginx tidak mengurus login) |
+| `frontend` | HTML/JS + Nginx | Menyajikan halaman web dan meneruskan `/api` ke API  |
 | `api` | Python, FastAPI | Login dan sesi, unggahan, status job, unduhan, pemulih job macet |
 | `worker-doc` | Python | Dokumen → PDF lewat Gotenberg |
 | `worker-image` | Node.js, Sharp | Konversi dan kompresi gambar |
@@ -235,19 +235,6 @@ Aplikasi punya login tetapi belum punya kuota per pengguna, jadi bagikan hanya k
 - Status job memakai polling, belum SSE.
 - Unggahan melalui API, belum presigned URL.
 - FFmpeg dengan libx264 berlisensi GPL; pahami implikasinya bila dikomersialkan.
-
-## Peta jalan
-
-- [x] Antrean tahan-gagal dengan retry otomatis
-- [x] Login akun per pengguna
-- [x] Antarmuka baru dengan mode terang dan gelap
-- [ ] Kuota per pengguna, API key, dan webhook
-- [ ] Worker baru: OCR (Tesseract), alat PDF, transkripsi audio
-- [ ] Pipeline berantai (hasil satu job menjadi masukan job berikutnya)
-- [ ] SSE menggantikan polling
-- [ ] Presigned upload langsung ke MinIO
-- [ ] Validasi magic bytes + ClamAV
-- [ ] Orkestrasi di k3s dengan komponen HA
 
 ## Kontribusi
 
