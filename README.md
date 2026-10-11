@@ -4,9 +4,9 @@
 
 **Konverter dokumen, gambar, audio, dan video berbasis microservices lintas bahasa.**
 
-Python, Node.js, dan Go bekerja sama lewat antrean Redis dan protokol jaringan standar, tanpa saling memanggil kode.
+Python, Node.js, dan Go bekerja sama lewat antrean Redis dan protokol jaringan standar.
 
-[![CI](https://github.com/akshakarya0-debug/cloudconvert-x/.github/workflows/ci.yml/badge.svg)](https://github.com/akshakarya0-debug/cloudconvert-x/.github/workflows/ci.yml)
+[![CI](https://github.com/akshakarya0-debug/cloudconvert-x/actions/workflows/ci.yml/badge.svg)](https://github.com/akshakarya0-debug/cloudconvert-x/actions/workflows/ci.yml)
 ![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)
 ![Node.js](https://img.shields.io/badge/Node.js-20-3C873A?logo=nodedotjs&logoColor=white)
 ![Go](https://img.shields.io/badge/Go-1.23-00ADD8?logo=go&logoColor=white)
