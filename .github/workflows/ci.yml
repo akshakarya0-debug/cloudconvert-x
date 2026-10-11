@@ -69,18 +69,3 @@ jobs:
           push: false
           cache-from: type=gha,scope=${{ matrix.service }}
           cache-to: type=gha,mode=max,scope=${{ matrix.service }}
-name: CI
-on:
-  push:
-  pull_request:
-jobs:
-  build:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Validasi compose
-        run: docker compose config -q
-      - name: Cek sintaks Python
-        run: python -m py_compile services/api/main.py services/worker-doc/main.py
-      - name: Build semua image
-        run: docker compose build
