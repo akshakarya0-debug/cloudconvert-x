@@ -18,8 +18,8 @@ Python, Node.js, dan Go bekerja sama lewat antrean Redis dan protokol jaringan s
 
 
 <p align="center">
-  <img src="docs/images/Utama_Terang.png" alt="Tampilan terang" width="48%">
-  <img src="docs/images/Utama_Gelap.png" alt="Tampilan gelap" width="48%">
+  <img src="docs/images/utama_terang.png" alt="Tampilan terang" width="48%">
+  <img src="docs/images/utama_gelap.png" alt="Tampilan gelap" width="48%">
 </p>
 -->
 
