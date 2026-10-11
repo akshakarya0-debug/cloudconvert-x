@@ -1,4 +1,75 @@
 name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# Batalkan proses lama bila ada push baru ke cabang yang sama.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    name: Pemeriksaan kode
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Validasi docker-compose
+        run: |
+          cp .env.example .env
+          docker compose config -q
+
+      - name: Sintaks Python (api dan worker-doc)
+        run: python -m compileall -q services/api services/worker-doc
+
+      - name: Sintaks Node.js (worker-image)
+        run: node --check services/worker-image/index.js
+
+      - name: Sintaks JavaScript frontend
+        run: |
+          python - <<'PY'
+          import re
+          html = open("services/frontend/index.html", encoding="utf-8").read()
+          open("/tmp/frontend.js", "w", encoding="utf-8").write(re.findall(r"<script>(.*?)</script>", html, re.S)[-1])
+          PY
+          node --check /tmp/frontend.js
+
+  build:
+    name: Build ${{ matrix.service }}
+    needs: checks
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [api, worker-doc, worker-image, worker-media, frontend]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build image ${{ matrix.service }}
+        uses: docker/build-push-action@v6
+        with:
+          context: services/${{ matrix.service }}
+          push: false
+          cache-from: type=gha,scope=${{ matrix.service }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.service }}
+name: CI
 on:
   push:
   pull_request:
