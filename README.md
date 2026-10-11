@@ -1,219 +1,259 @@
+<div align="center">
+
 # CloudConvert-X
 
-Konverter dokumen, gambar, audio, dan video berbasis **microservices lintas bahasa**.
-Semua berjalan di laptop lewat Docker Compose. Tujuan utama proyek ini: membuktikan bahwa
-layanan yang ditulis dengan bahasa berbeda bisa bekerja sama lewat protokol jaringan standar.
+**Konverter dokumen, gambar, audio, dan video berbasis microservices lintas bahasa.**
 
-| Layanan | Bahasa | Tugas |
+Python, Node.js, dan Go bekerja sama lewat antrean Redis dan protokol jaringan standar, tanpa saling memanggil kode.
+
+[![CI](https://github.com/USERNAME/cloudconvert-x/actions/workflows/ci.yml/badge.svg)](https://github.com/USERNAME/cloudconvert-x/actions/workflows/ci.yml)
+![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)
+![Node.js](https://img.shields.io/badge/Node.js-20-3C873A?logo=nodedotjs&logoColor=white)
+![Go](https://img.shields.io/badge/Go-1.23-00ADD8?logo=go&logoColor=white)
+![Docker Compose](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white)
+![Redis](https://img.shields.io/badge/Redis-7-DC382D?logo=redis&logoColor=white)
+
+</div>
+
+<!--
+Tambahkan tangkapan layar ke docs/images/ lalu aktifkan blok di bawah:
+
+<p align="center">
+  <img src="docs/images/terang.png" alt="Tampilan terang" width="48%">
+  <img src="docs/images/gelap.png" alt="Tampilan gelap" width="48%">
+</p>
+-->
+
+## Fitur
+
+- **Empat jenis file**: dokumen → PDF, konversi gambar, audio, dan video, dengan progres nyata.
+- **Antarmuka web** dengan tarik-lepas hingga 10 file sekaligus, riwayat job, status layanan langsung, serta mode terang dan gelap.
+- **Akun per pengguna**: tanpa pendaftaran terbuka, job hanya terlihat oleh pemiliknya.
+- **Antrean tahan-gagal**: job dari worker yang mati di tengah proses dikembalikan ke antrean otomatis.
+- **Mudah diskalakan**: tambah worker dengan satu perintah, tambah bahasa baru dengan mengikuti kontrak sederhana.
+
+## Arsitektur
+
+```mermaid
+flowchart LR
+    U(["Pengguna<br/>Browser"]) -->|"HTTP(S)"| N["Nginx<br/>Frontend"]
+    N -->|"/api"| A["API<br/>Python · FastAPI"]
+    A -->|simpan file| M[("MinIO<br/>penyimpanan S3")]
+    A -->|status, sesi, pesan job| R[("Redis<br/>antrean · sesi")]
+    R -->|queue:doc| WD["worker-doc<br/>Python"]
+    R -->|queue:image| WI["worker-image<br/>Node.js · Sharp"]
+    R -->|queue:media| WM["worker-media<br/>Go · FFmpeg"]
+    WD -->|HTTP| G["Gotenberg<br/>Chromium + LibreOffice"]
+    WD & WI & WM -->|hasil konversi| M
+
+    classDef python fill:#3776ab,stroke:#2b5b84,color:#fff
+    classDef node fill:#3c873a,stroke:#2d6a2c,color:#fff
+    classDef go fill:#00758f,stroke:#005a6e,color:#fff
+    classDef infra fill:#4b5563,stroke:#374151,color:#fff
+    class A,WD python
+    class WI node
+    class WM,G go
+    class N,R,M infra
+```
+
+| Layanan | Teknologi | Peran |
 |---|---|---|
-| `api` | **Python** (FastAPI) | Menerima unggahan, membuat job, melaporkan status, mengirim hasil |
-| `worker-doc` | **Python** | Mengubah dokumen ke PDF dengan memanggil Gotenberg |
-| `gotenberg` | **Go** | Chromium + LibreOffice untuk render PDF |
-| `worker-image` | **Node.js** + Sharp (C++) | Konversi dan kompresi gambar |
-| `worker-media` | **Go** + FFmpeg (C) | Konversi audio dan video dengan progres nyata |
-| `redis` | **C** | Antrean job, status job, heartbeat worker |
-| `minio` | **Go** | Penyimpanan file (S3) |
-| `frontend` | HTML/JS + Nginx | Antarmuka web |
+| `frontend` | HTML/JS + Nginx | Menyajikan halaman web dan meneruskan `/api` ke API (Nginx tidak mengurus login) |
+| `api` | Python, FastAPI | Login dan sesi, unggahan, status job, unduhan, pemulih job macet |
+| `worker-doc` | Python | Dokumen → PDF lewat Gotenberg |
+| `worker-image` | Node.js, Sharp | Konversi dan kompresi gambar |
+| `worker-media` | Go, FFmpeg | Konversi audio dan video |
+| `gotenberg` | Go | Render PDF (Chromium + LibreOffice) |
+| `redis` | Redis | Antrean, status job, sesi, heartbeat |
+| `minio` | Go | Penyimpanan objek kompatibel S3 |
 
-## Cara kerja
+Layanan tidak saling memanggil fungsi. Semuanya hanya memakai tiga protokol umum: **HTTP + JSON**, **protokol Redis**, dan **protokol S3**. Itu sebabnya bahasa pemrograman tiap layanan bebas dipilih.
 
-```
-Browser ──► Nginx ──/api──► API (Python)
-                              │ 1. simpan file          ──► MinIO (S3 / HTTP)
-                              │ 2. catat status job     ──► Redis (hash job:<id>)
-                              │ 3. kirim pesan JSON     ──► Redis (list queue:<jenis>)
-                              ▼
-           ┌──────────────────┼───────────────────┐
-     queue:doc           queue:image          queue:media
-   worker-doc (Python)  worker-image (Node)  worker-media (Go)
-        │ HTTP                │ Sharp              │ proses anak
-        ▼                     ▼                    ▼
-   Gotenberg (Go)        libvips (C++)         FFmpeg (C)
-        └──── hasil ditulis ke MinIO, status "done" ditulis ke Redis ────┘
-Browser polling GET /api/jobs/<id> ──► progres ──► tombol Unduh
-```
+### Alur satu konversi
 
-### Kenapa beda bahasa tidak jadi masalah
-
-Tidak ada layanan yang memanggil fungsi layanan lain. Semuanya hanya memakai tiga
-"bahasa umum" jaringan:
-
-1. **HTTP + JSON**: browser ke API, worker-doc ke Gotenberg.
-2. **Protokol Redis (RESP)**: antrean, status, heartbeat. Klien Redis tersedia di semua bahasa.
-3. **Protokol S3 (HTTP)**: baca/tulis file di MinIO dari boto3 (Python), AWS SDK (Node.js), dan minio-go (Go).
-
-Kontrak yang wajib dipatuhi setiap worker:
-
-**Pesan job** (JSON, di-`LPUSH` API ke `queue:<doc|image|media>`, diambil worker dengan `BRPOPLPUSH` ke `processing:<nama>`):
-```json
-{"job_id":"a1b2...","category":"image","input_key":"inputs/a1b2.../foto.png","filename":"foto.png","target":"webp"}
+```mermaid
+sequenceDiagram
+    autonumber
+    actor P as Pengguna
+    participant A as API (Python)
+    participant M as MinIO
+    participant R as Redis
+    participant W as Worker (Python / Node.js / Go)
+    P->>A: Unggah file dan format tujuan
+    A->>M: Simpan file asli
+    A->>R: Catat job (queued), kirim pesan ke antrean
+    A-->>P: 202 Accepted + job_id
+    W->>R: BRPOPLPUSH, pesan pindah ke processing
+    loop selama bekerja
+        W->>R: Perpanjang lease (TTL 30 dtk)
+    end
+    W->>M: Ambil file, konversi, tulis hasil
+    W->>R: Status done, hapus dari processing
+    P->>A: Polling status
+    A-->>P: Progres, lalu tombol Unduh
+    Note over A,R: Bila lease habis (worker mati), pemulih di API mengembalikan job ke antrean
 ```
 
-**Status job** (Redis hash `job:<job_id>`, ditulis worker):
+## Mulai cepat
 
-| Field | Nilai |
-|---|---|
-| `status` | `queued` → `processing` → `done` atau `failed` |
-| `progress` | 0-100 |
-| `output_key` | lokasi hasil di MinIO (`outputs/<job_id>/<nama>.<ext>`) |
-| `output_name` | nama file untuk diunduh |
-| `error` | pesan galat bila `failed` |
-| `worker` | siapa yang mengerjakan (bahasa + hostname) |
-
-**Heartbeat**: setiap 5 detik worker menulis `worker:<jenis>:<host>` (TTL 15 detik) berisi
-nama layanan dan bahasanya. Panel "Status layanan" di UI membacanya, jadi worker yang mati
-otomatis hilang dari daftar.
-
-## Struktur
-
-```
-cloudconvert-x/
-├── docker-compose.yml
-├── .env.example
-├── REQUIREMENTS.md
-├── services/
-│   ├── api/            # Python  - main.py, formats.json
-│   ├── worker-doc/     # Python  - main.py
-│   ├── worker-image/   # Node.js - index.js
-│   ├── worker-media/   # Go      - main.go
-│   └── frontend/       # HTML + Nginx
-├── tests/smoke_test.sh
-└── .github/workflows/ci.yml
-```
-
-## Menjalankan
-
-Prasyarat ada di [REQUIREMENTS.md](REQUIREMENTS.md).
+**Prasyarat:** Docker Engine dengan Compose v2, RAM 8 GB (4 GB untuk Docker), dan sekitar 6 GB disk kosong. Python, Node.js, Go, dan FFmpeg tidak perlu dipasang; semuanya ada di dalam kontainer. Detail di [REQUIREMENTS.md](REQUIREMENTS.md).
 
 ```bash
 git clone https://github.com/USERNAME/cloudconvert-x.git
 cd cloudconvert-x
-cp .env.example .env          # opsional; tanpa .env dipakai nilai bawaan
-docker compose up -d --build  # build pertama 5-10 menit
-docker compose ps             # semua harus Up / healthy
+cp .env.example .env                 # ganti MINIO_ROOT_PASSWORD
+docker compose up -d --build         # build pertama beberapa menit
+docker compose exec api python manage.py tambah-pengguna kamu@contoh.com --nama "Nama Kamu"
 ```
+
+Buka **http://localhost:8080** dan masuk dengan akun tadi.
 
 | Alamat | Isi |
 |---|---|
-| http://localhost:8080 | Aplikasi web |
-| http://localhost:8000/docs | Dokumentasi API (Swagger) |
-| http://localhost:9001 | Console MinIO (login sesuai `.env`) |
+| `http://localhost:8080` | Aplikasi web |
+| `http://localhost:8000/docs` | Dokumentasi API (Swagger) |
+| `http://localhost:9001` | Console MinIO (khusus admin) |
 
-### Uji lintas bahasa
+Uji end-to-end untuk ketiga bahasa:
 
 ```bash
-bash tests/smoke_test.sh
-```
-Contoh keluaran yang diharapkan:
-```
-PASS  tests/tmp/sample.html -> pdf  (..) worker-doc (Python) @abc123
-PASS  tests/tmp/sample.png  -> webp (..) worker-image (Node.js) @def456
-PASS  tests/tmp/tone.mp3    -> wav  (..) worker-media (Go) @789xyz
-```
-Kolom terakhir membuktikan bahasa mana yang mengerjakan tiap job.
-
-Uji manual dengan curl:
-```bash
-curl http://localhost:8000/api/health
-curl -F "file=@laporan.docx" -F "target=pdf" http://localhost:8000/api/jobs
-curl http://localhost:8000/api/jobs/<job_id>
-curl -OJ http://localhost:8000/api/jobs/<job_id>/download
+CCX_EMAIL=kamu@contoh.com CCX_PASSWORD='kata-sandi' bash tests/smoke_test.sh
 ```
 
-### Format yang didukung
+## Konfigurasi
 
-| Jenis | Masuk | Keluar | Dikerjakan oleh |
+Semua pengaturan ada di `.env` (contoh: `.env.example`).
+
+| Variabel | Bawaan | Fungsi |
+|---|---|---|
+| `MINIO_ROOT_USER` / `MINIO_ROOT_PASSWORD` | `ccxadmin` / *(ganti)* | Kredensial MinIO |
+| `S3_BUCKET` | `ccx` | Nama bucket |
+| `SESSION_DAYS` | `7` | Lama sesi login |
+| `MAX_UPLOAD_MB` | `200` | Batas ukuran per file (samakan dengan `client_max_body_size` di Nginx) |
+| `IMAGE_MAX_WIDTH` / `IMAGE_QUALITY` | `2560` / `80` | Batas lebar dan kualitas hasil gambar |
+
+> **MinIO:** image `minio/minio` sudah tidak tersedia di Docker Hub. Proyek ini memakai `cgr.dev/chainguard/minio` yang berjalan dengan `user: "0"` agar bisa menulis ke volume.
+
+## Format yang didukung
+
+| Jenis | Masuk | Keluar | Worker |
 |---|---|---|---|
-| Dokumen | doc, docx, xls, xlsx, ppt, pptx, odt, ods, odp, rtf, txt, html, md | pdf | worker-doc |
-| Gambar | jpg, png, webp, avif, gif, tiff | jpg, png, webp, avif, tiff, gif | worker-image |
-| Audio | mp3, wav, flac, m4a, ogg, aac, opus, wma | mp3, wav, ogg, flac, m4a | worker-media |
-| Video | mp4, mkv, avi, mov, webm, flv, wmv, m4v | mp4, webm, mkv + ekstrak audio | worker-media |
+| Dokumen | doc, docx, xls, xlsx, ppt, pptx, odt, ods, odp, rtf, txt, html, md | pdf | `worker-doc` |
+| Gambar | jpg, png, webp, avif, gif, tiff | jpg, png, webp, avif, tiff, gif | `worker-image` |
+| Audio | mp3, wav, flac, m4a, ogg, aac, opus, wma | mp3, wav, ogg, flac, m4a | `worker-media` |
+| Video | mp4, mkv, avi, mov, webm, flv, wmv, m4v | mp4, webm, mkv, dan ekstrak audio | `worker-media` |
 
-Daftar ini ada di satu tempat: `services/api/formats.json`.
+Seluruh matriks ada di satu berkas: [`services/api/formats.json`](services/api/formats.json).
 
-## Akun dan login
+## Manajemen akun
 
-Semua endpoint (kecuali `/api/ping`) butuh login. Tidak ada pendaftaran terbuka; akun dibuat admin:
+Akun dibuat dan dikelola admin lewat terminal:
 
 ```bash
 docker compose exec api python manage.py tambah-pengguna budi@contoh.com --nama "Budi"
 docker compose exec api python manage.py daftar
 docker compose exec api python manage.py ganti-password budi@contoh.com
-docker compose exec api python manage.py nonaktifkan budi@contoh.com   # sesinya langsung dicabut
+docker compose exec api python manage.py nonaktifkan budi@contoh.com
 ```
 
-Akun disimpan di SQLite (volume `api_data`), kata sandi sebagai hash argon2, sesi berupa cookie `HttpOnly` dengan token acak (disimpan di Redis sebagai hash, berlaku `SESSION_DAYS` hari). Tiap job hanya terlihat dan bisa diunduh oleh pemiliknya. Lima kali salah kata sandi untuk satu email memblokir email itu 15 menit.
+## API
 
-## Endpoint API
+Semua endpoint selain `/api/ping` membutuhkan sesi login (cookie).
 
 | Metode | Path | Fungsi |
 |---|---|---|
-| POST | `/api/auth/login` | JSON `email`, `password`. Mengatur cookie sesi |
-| POST | `/api/auth/logout` | Mengakhiri sesi |
-| GET | `/api/auth/me` | Pengguna yang sedang masuk |
-| GET | `/api/health` | Status Redis, MinIO, Gotenberg, worker aktif, panjang antrean |
-| GET | `/api/formats` | Matriks format |
-| POST | `/api/jobs` | Form: `file`, `target`. Balasan 202 + `job_id` |
-| GET | `/api/jobs` | 20 job terakhir milik pengguna yang masuk |
-| GET | `/api/jobs/{id}` | Status dan progres |
-| GET | `/api/jobs/{id}/download` | Unduh hasil (setelah `done`) |
+| `POST` | `/api/auth/login` | Masuk (`email`, `password`) |
+| `POST` | `/api/auth/logout` | Keluar |
+| `GET` | `/api/auth/me` | Pengguna saat ini |
+| `GET` | `/api/formats` | Matriks format |
+| `POST` | `/api/jobs` | Buat job (form: `file`, `target`) → `202` + `job_id` |
+| `GET` | `/api/jobs` | 20 job terakhir milik pengguna |
+| `GET` | `/api/jobs/{id}` | Status dan progres |
+| `GET` | `/api/jobs/{id}/download` | Unduh hasil |
+| `GET` | `/api/health` | Status layanan, worker aktif, panjang antrean |
 
-## Perintah harian
+## Keandalan dan keamanan
 
-```bash
-docker compose logs -f worker-media        # log satu layanan
-docker compose up -d --scale worker-image=3  # tambah worker (paralel)
-docker compose restart worker-doc
-docker compose down                        # matikan (data tetap)
-docker compose down -v                     # matikan + hapus data
+- **Antrean tahan-gagal.** Worker mengambil pesan dengan `BRPOPLPUSH` ke daftar `processing` dan memperpanjang `lease` selama bekerja. Pemulih di API mengembalikan job yang lease-nya habis (maksimal 3 percobaan, lalu `failed`). Job bisa terproses lebih dari sekali; hasilnya menimpa kunci yang sama sehingga aman.
+- **Autentikasi.** Kata sandi disimpan sebagai hash argon2. Sesi memakai cookie `HttpOnly` + `SameSite=Lax` (`Secure` di balik HTTPS); Redis hanya menyimpan hash token sesi.
+- **Isolasi data.** Pengguna lain mendapat `404` untuk job yang bukan miliknya.
+- **Perlindungan dasar.** Pembatasan percobaan masuk, pemeriksaan `Origin` pada permintaan ubah-data, dan unggahan tanpa sesi ditolak sebelum isi file dibaca.
+- **Penghapusan otomatis.** File di MinIO dan status job kedaluwarsa setelah 24 jam.
+
+## Menambah worker baru
+
+Worker boleh ditulis dalam bahasa apa saja. Yang dibutuhkan hanya klien Redis dan S3:
+
+1. Ambil pesan JSON dengan `BRPOPLPUSH queue:<nama> processing:<nama>`.
+2. Set `lease:<job_id>` (TTL 30 detik) dan perbarui kira-kira tiap 5 detik selama bekerja.
+3. Ambil file dari MinIO, konversi, tulis hasil ke `outputs/<job_id>/<nama>`.
+4. Tulis `status`, `progress`, `output_key`, `output_name`, atau `error` ke hash `job:<job_id>`.
+5. Hapus pesan dengan `LREM processing:<nama> 1 <pesan>` dan `DEL lease:<job_id>`.
+6. Kirim heartbeat `worker:<jenis>:<host>` (TTL 15 detik) agar muncul di panel status.
+
+Lalu daftarkan kategori di `formats.json` dan tambahkan satu blok di `docker-compose.yml`.
+
+## Struktur proyek
+
+```
+cloudconvert-x/
+├── docker-compose.yml
+├── .env.example
+├── services/
+│   ├── api/            # Python: main.py, auth.py, manage.py, formats.json
+│   ├── worker-doc/     # Python
+│   ├── worker-image/   # Node.js
+│   ├── worker-media/   # Go
+│   └── frontend/       # index.html + nginx.conf
+├── tests/              # smoke_test.sh
+└── .github/workflows/  # CI
 ```
 
-## Eksperimen yang layak dicoba
+## Membuka ke internet
 
-1. **Bunuh worker saat idle**: `docker compose stop worker-image`. Panel status menandai worker hilang dalam ±15 detik. Kirim gambar, job menunggu di antrean. Jalankan lagi (`start`), job otomatis diproses. Ini bukti antrean memisahkan layanan.
-2. **Scale**: kirim banyak gambar sambil `--scale worker-image=3`, lihat kolom `worker` berganti-ganti host.
-3. **Tambah bahasa baru**: worker apa saja (Rust, Java, PHP, ...) cukup: `BRPOPLPUSH queue:<nama> processing:<nama>`, set `lease:<job_id>` (TTL 30 dtk) dan perbarui tiap ±5 dtk selama bekerja, baca JSON, ambil file dari S3, tulis hasil, `HSET job:<id> ...` sesuai kontrak di atas, lalu `LREM processing:<nama> 1 <pesan>` dan `DEL lease:<job_id>`. Tambahkan kategori di `formats.json` dan satu blok di `docker-compose.yml`.
+Aplikasi punya login tetapi belum punya kuota per pengguna, jadi bagikan hanya ke orang yang dikenal.
 
-## Keterbatasan versi ini (sengaja dibuat sederhana)
-
-- **Worker mati saat memproses**: pesan tetap di `processing:<nama>`. Bila lease job habis ±20 dtk, API mengembalikannya ke antrean (maksimal 3 percobaan, lalu `failed`). Konsekuensi: job bisa terproses lebih dari sekali (hasilnya ditimpa di kunci yang sama, jadi aman). Perubahan ini di `recover_orphans()` pada `services/api/main.py`.
-- **Tipe file hanya dicek lewat ekstensi.** Untuk produksi tambahkan pengecekan magic bytes dan pemindaian ClamAV.
-- **Belum ada kuota per pengguna.** Pengguna yang sudah masuk tetap bisa mengunggah tanpa batas jumlah (hanya dibatasi ukuran file). Pasang pagar tambahan (mis. Cloudflare Access) bila dibuka ke internet.
-- **Status via polling 1 detik**, belum SSE.
-- **Upload lewat API** (bukan presigned URL), cukup untuk laptop.
-- **Status job di Redis** (kedaluwarsa 24 jam); belum ada PostgreSQL/riwayat permanen.
-- File di MinIO dihapus otomatis setelah 1 hari lewat lifecycle rule.
-- Dokumen yang dirender Gotenberg tidak diberi sandbox jaringan khusus; jangan konversi HTML dari sumber tak tepercaya di lingkungan bersama.
-- Lisensi: FFmpeg dengan libx264 berlisensi GPL; pahami implikasinya bila dikomersialkan.
+- Batasi port `8000` dan `9001` ke `127.0.0.1` di `docker-compose.yml`; cukup `8080` yang perlu dijangkau.
+- Gunakan **Tailscale** untuk akses privat, atau **Cloudflare Tunnel** (dengan Cloudflare Access) untuk tautan web. Keduanya tetap bekerja di jaringan yang memakai CGNAT.
+- Tambahkan `restart: unless-stopped` pada `redis`, `minio`, dan `gotenberg` agar pulih setelah reboot.
 
 ## Pemecahan masalah
 
-| Gejala | Penyebab / solusi |
+| Gejala | Solusi |
 |---|---|
-| `minio` gagal pull | Ganti tag di `docker-compose.yml` menjadi `minio/minio:latest` |
-| Build `worker-media` gagal di `go mod tidy` | Butuh internet; cek koneksi/proxy lalu ulangi `docker compose build worker-media` |
-| Konversi dokumen pertama lambat/timeout | LibreOffice baru menyala; ulangi. Naikkan RAM Docker ke 4 GB+ |
-| Panel menampilkan "belum ada worker aktif" | `docker compose logs worker-doc worker-image worker-media` |
-| Job `failed` dengan pesan `Gotenberg HTTP 4xx/5xx` | Cek `docker compose logs gotenberg`; biasanya file rusak atau format tidak cocok |
-| Port bentrok | Ubah pemetaan port kiri di `docker-compose.yml` (mis. `"8081:80"`) |
-| Windows: `smoke_test.sh` gagal | Jalankan dari Git Bash atau WSL |
+| `minio` gagal pull | Pakai `cgr.dev/chainguard/minio:latest` (lihat [Konfigurasi](#konfigurasi)) |
+| `permission denied` pada `docker.sock` | `sudo usermod -aG docker $USER`, lalu login ulang |
+| `can't open file '/app/manage.py'` | Bangun ulang: `docker compose up -d --build api` |
+| Tampilan tidak berubah setelah pembaruan | `docker compose up -d --build frontend`, lalu `Ctrl+Shift+R` |
+| Lupa kata sandi | `manage.py ganti-password <email>` |
+| Antrean selalu 0 di panel status | Wajar untuk job kecil yang selesai kurang dari 1 detik; coba dengan video panjang |
+| Port bentrok | Ubah angka kiri pada `ports` di `docker-compose.yml` |
 
-## Alur GitHub
+## Batasan yang diketahui
 
-```bash
-git init && git branch -M main
-git add . && git commit -m "feat: poc cloudconvert-x polyglot"
-git remote add origin git@github.com:USERNAME/cloudconvert-x.git
-git push -u origin main
-```
-`.env` sudah ada di `.gitignore`. Workflow `.github/workflows/ci.yml` memvalidasi compose dan membangun semua image di setiap push.
+- Belum ada kuota per pengguna.
+- Tipe file dicek lewat ekstensi, belum lewat magic bytes atau pemindai virus.
+- Status job memakai polling, belum SSE.
+- Unggahan melalui API, belum presigned URL.
+- FFmpeg dengan libx264 berlisensi GPL; pahami implikasinya bila dikomersialkan.
 
 ## Peta jalan
 
-1. Presigned upload langsung ke MinIO + unggah bertahap
-2. Antrean tahan-gagal (BLMOVE / BullMQ / NATS) dan retry otomatis
-3. Kuota per pengguna, API key, dan riwayat (PostgreSQL bila pengguna bertambah banyak)
-4. SSE menggantikan polling
-5. Validasi magic bytes + ClamAV
-6. Bungkus frontend dengan Tauri (desktop)
-7. Pindah ke k3s + HA di server sendiri (Patroni, Redis Sentinel, MinIO terdistribusi)
+- [x] Antrean tahan-gagal dengan retry otomatis
+- [x] Login akun per pengguna
+- [x] Antarmuka baru dengan mode terang dan gelap
+- [ ] Kuota per pengguna, API key, dan webhook
+- [ ] Worker baru: OCR (Tesseract), alat PDF, transkripsi audio
+- [ ] Pipeline berantai (hasil satu job menjadi masukan job berikutnya)
+- [ ] SSE menggantikan polling
+- [ ] Presigned upload langsung ke MinIO
+- [ ] Validasi magic bytes + ClamAV
+- [ ] Orkestrasi di k3s dengan komponen HA
+
+## Kontribusi
+
+Issue dan pull request dipersilakan. Sebelum mengirim perubahan, pastikan `docker compose build` berhasil dan `tests/smoke_test.sh` lulus.
+
+## Lisensi
+
+Lihat berkas [LICENSE](LICENSE).
